@@ -1,7 +1,8 @@
 import time
 import mlx.core as mx
 from mlx_lm import load
-from mlx_lm.models.cache import make_prompt_cache
+# from mlx_lm.models.cache import make_prompt_cache
+from cache import make_prompt_cache
 
 MODEL_NAME = "mlx-community/Llama-3.2-1B-Instruct-4bit"
 
