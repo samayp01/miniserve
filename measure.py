@@ -1,7 +1,7 @@
 import time
 import statistics
 import mlx.core as mx
-from engine import prefill, generate_tokens, tokenizer
+from engine import prefill, generate_tokens, tokenizer, WEIGHTS_BYTES
 
 def make_synthetic_prompt(n):
     tid = tokenizer.encode("the")[-1]
@@ -25,6 +25,35 @@ def _time_ttft_and_decode(token_ids, max_tokens):
     decode_s = time.perf_counter() - t
 
     return ttft_s, decode_s
+
+def memory_usage(prompt, max_tokens=2048, sample_every=256):
+    gen = generate_tokens(prompt, max_tokens=max_tokens, stop_on_eos=False)
+    samples = []
+    mx.reset_peak_memory()
+    for i, _ in enumerate(gen, start=1):
+        if i % sample_every == 0:
+            active = mx.get_active_memory()
+            gap = mx.get_peak_memory() - active
+            samples.append((i, active, gap))
+            mx.reset_peak_memory()
+    return samples
+
+def memory_report(samples, weights_bytes):
+    xs = [t for t, *_ in samples]
+    ys = [active for _, active, *_ in samples]
+    bytes_per_tok = statistics.linear_regression(xs, ys).slope
+
+    predicted = 16 * 8 * 64 * 2 * 2
+    working_set = mx.device_info()["max_recommended_working_set_size"]
+    free = working_set - weights_bytes
+    ceiling_tokens = free / bytes_per_tok
+
+    return {
+        "bytes_per_tok": round(bytes_per_tok),
+        "predicted_bytes_per_tok": predicted,
+        "ceiling_tokens": int(ceiling_tokens),
+        "working_set_gb": round(working_set / 1e9, 1),
+    }
 
 def benchmark(token_ids, max_tokens=128, trials=5):
     list(generate_tokens(token_ids, max_tokens=max_tokens, stop_on_eos=False))
@@ -51,8 +80,8 @@ def benchmark(token_ids, max_tokens=128, trials=5):
         "prefill_tok_per_sec": round(token_ids.size / prefill_med, 1),
     }
 
-if __name__ == "__main__":
-    rows = [benchmark(make_synthetic_prompt(n)) for n in (64, 256, 1024, 4096)]
+def print_timing_sweep(sizes=(64, 256, 1024, 4096)):
+    rows = [benchmark(make_synthetic_prompt(n)) for n in sizes]
     print(
         f"{'prompt_tok':>10} {'prefill_ms':>11} {'ttft_ms':>9} {'ms/tok':>8} "
         f"{'decode_tok/s':>13} {'prefill_tok/s':>14}"
@@ -63,3 +92,24 @@ if __name__ == "__main__":
             f"{r['ms_per_tok']:>8.2f} {r['decode_tok_per_sec']:>13.1f} "
             f"{r['prefill_tok_per_sec']:>14.1f}"
         )
+
+def print_memory_experiment():
+    samples = memory_usage(make_synthetic_prompt(8))
+    report = memory_report(samples, WEIGHTS_BYTES)
+
+    print(f"\n{'tokens':>8} {'active_MB':>11} {'concat_gap_MB':>14}")
+    for n, active, gap in samples:
+        print(f"{n:>8} {active / 1e6:>11.1f} {gap / 1e6:>14.1f}")
+
+    print(
+        f"\nbytes/token: {report['bytes_per_tok']:,} "
+        f"(predicted {report['predicted_bytes_per_tok']:,})"
+    )
+    print(
+        f"ceiling: {report['ceiling_tokens']:,} tokens "
+        f"in {report['working_set_gb']}GB working set"
+    )
+
+if __name__ == "__main__":
+    print_timing_sweep()
+    print_memory_experiment()

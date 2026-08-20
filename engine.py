@@ -5,6 +5,7 @@ from cache import make_prompt_cache, KVCache
 MODEL_NAME = "mlx-community/Llama-3.2-1B-Instruct-4bit"
 
 model, tokenizer = load(MODEL_NAME)
+WEIGHTS_BYTES = mx.get_active_memory()
 
 def prefill(prompt) -> tuple[mx.array, KVCache]:
     if isinstance(prompt, str):

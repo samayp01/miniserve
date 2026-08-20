@@ -1,11 +1,40 @@
+- Model: mlx-community/Llama-3.2-1B-Instruct-4bit
+- Hardware: M4 Max, 36GB unified memory
+- mlx-lm version: 0.31.3
+
+### v0.1.2 - Custom KV Cache and memory benchmarks
+
+Method: For memory, 2048 tokens sampled every 256, greedy
+
+```
+prompt_tok  prefill_ms   ttft_ms   ms/tok  decode_tok/s  prefill_tok/s
+        64        16.5      16.6     3.05         328.1         3889.4
+       256        59.2      59.4     3.12         320.7         4326.6
+      1024       233.5     233.9     3.50         285.8         4385.2
+      4096      1075.1    1150.2     4.59         217.9         3809.9
+
+  tokens   active_MB  concat_gap_MB
+     256       704.4            8.7
+     512       712.8           16.0
+     768       721.2           24.2
+    1024       729.6           37.0
+    1280       738.0           44.6
+    1536       746.4           52.5
+    1792       754.8           59.6
+    2048       763.1           71.7
+
+bytes/token: 32,768 (predicted 32,768)
+ceiling: 898,908 tokens in 30.2GB working set
+```
+
+The numbers with the custom KV Cache seem in-line with the previous runtime benchmarks, which is expected since the mx arrays are now manually managed, but in a similar way, as previously done by mlx's native `make_prompt_cache`.
+
+The active_MB column climbs linearly, where every 256-token step adds ~8.4 MB. At 2048 tokens the cache is ~67 MB, and the gap is 71.7 MB which points toward the KV cache concatenation temporarily holding onto a second full copy of the cache. Although the steady-state ceiling is noted to be ~898k tokens, the concat function's double buffer means that this would OOM when 2*cache_size fills the working set, so continuing naively would halve the amount of usable, working memory.
 
 
 ### v0.1.1 - Naive prefill & decode
 
-- Model: mlx-community/Llama-3.2-1B-Instruct-4bit
-- Hardware: M4 Max, 36GB unified memory
-- mlx-lm version: 0.31.3
-- Method: 1 warmup, median of 5 reps, 128 tokens generated, greedy (argmax)
+Method: 1 warmup, median of 5 reps, 128 tokens generated, greedy (argmax)
 
 ```
 prompt_tok  prefill_ms   ms/tok  prefill/tok
