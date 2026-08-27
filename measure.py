@@ -1,33 +1,32 @@
 import time
 import statistics
 import mlx.core as mx
-from engine import prefill, generate_tokens, tokenizer, WEIGHTS_BYTES
+from engine import _prefill_ids, _decode, tokenizer, WEIGHTS_BYTES
 
 def make_synthetic_prompt(n):
     tid = tokenizer.encode("the")[-1]
-    return mx.array([tid] * n)
+    return [tid] * n
 
 def _time_prefill(token_ids):
     t = time.perf_counter()
-    prefill(token_ids)
+    _prefill_ids([token_ids])
     return time.perf_counter() - t
 
-def _time_ttft_and_decode(token_ids, max_tokens):
-    gen = generate_tokens(token_ids, max_tokens=max_tokens, stop_on_eos=False)
-
+def _time_ttft_and_decode(ids, max_tokens):
     t = time.perf_counter()
+    logits, cache = _prefill_ids([ids])
+    gen = _decode(logits, cache, max_tokens, stop_on_eos=False)
     next(gen)
     ttft_s = time.perf_counter() - t
 
     t = time.perf_counter()
     for _ in range(max_tokens - 1):
         next(gen)
-    decode_s = time.perf_counter() - t
+    return ttft_s, time.perf_counter() - t
 
-    return ttft_s, decode_s
-
-def memory_usage(prompt, max_tokens=2048, sample_every=256):
-    gen = generate_tokens(prompt, max_tokens=max_tokens, stop_on_eos=False)
+def memory_usage(ids, max_tokens=2048, sample_every=256):
+    logits, cache = _prefill_ids([ids])
+    gen = _decode(logits, cache, max_tokens, stop_on_eos=False)
     samples = []
     mx.reset_peak_memory()
     for i, _ in enumerate(gen, start=1):
@@ -56,7 +55,8 @@ def memory_report(samples, weights_bytes):
     }
 
 def benchmark(token_ids, max_tokens=128, trials=5):
-    list(generate_tokens(token_ids, max_tokens=max_tokens, stop_on_eos=False))
+    logits, cache = _prefill_ids([token_ids])
+    list(_decode(logits, cache, max_tokens=max_tokens, stop_on_eos=False))
 
     prefill_s, ttft_s, decode_s = [], [], []
     for _ in range(trials):
@@ -71,13 +71,13 @@ def benchmark(token_ids, max_tokens=128, trials=5):
     ms_per_tok = decode_med * 1000 / (max_tokens - 1)
 
     return {
-        "prompt_tokens": int(token_ids.size),
+        "prompt_tokens": len(token_ids),
         "gen_tokens": max_tokens,
         "prefill_ms": round(prefill_med * 1000, 1),
         "ttft_ms": round(ttft_med * 1000, 1),
         "ms_per_tok": round(ms_per_tok, 2),
         "decode_tok_per_sec": round(1000 / ms_per_tok, 1),
-        "prefill_tok_per_sec": round(token_ids.size / prefill_med, 1),
+        "prefill_tok_per_sec": round(len(token_ids) / prefill_med, 1),
     }
 
 def print_timing_sweep(sizes=(64, 256, 1024, 4096)):

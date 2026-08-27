@@ -7,5 +7,5 @@ if __name__ == "__main__":
         sys.exit(1)
 
     prompt = sys.argv[1]
-    print("".join(list(generate(prompt, stop_on_eos=True))))
+    print("\n".join(generate([prompt], stop_on_eos=True)))
 
