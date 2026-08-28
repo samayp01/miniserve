@@ -2,7 +2,30 @@
 - Hardware: M4 Max, 36GB unified memory
 - mlx-lm version: 0.31.3
 
-### v0.1.2 - Custom KV Cache and memory benchmarks
+### v0.1.4 Static Batching and mask padded tokens
+
+Method: increasing number of prompts passed in batch and measure the throughput vs latency
+
+```
+ batch   agg_tok/s   ms/step
+     1       320.4      3.12
+     2       636.8      3.14
+     4       917.2      4.36
+     8      1045.0      7.66
+    16      1442.1     11.10
+
+            lengths   real    pad  waste%  prefill_ms  wasted_ms
+  [64, 64, 64, 64]    256      0     0.0        61.3        0.0
+  [16, 48, 80, 112]   256    192    42.9       108.0       46.3
+    [8, 8, 8, 488]    512   1440    73.8       488.9      360.7
+```
+
+With static batching, the engine now processes the prefill/decode loop of one or many prompts in one pass. The first table indicates the number of prompts passed in a batch and how the aggregate token throughput scales linearly at small batch sizes but begins to taper as compute becomes the bottleneck.
+
+Prefill computes the full `N * max_len` prompt rectangle, so every row's runtime is scaled to that of the longest prompt. This was implemented as more of an exercise to benchmark the later implementation against, but the second table indicates that batches with more uneven prompt lengths suffer from more wasted runtime. The lopsided batch (row 3) is 74% padding, with ~361ms of the total ~489ms prefill runtime wasted.
+
+
+### v0.1.2 Custom KV Cache and memory benchmarks
 
 Method: For memory, 2048 tokens sampled every 256, greedy
 
@@ -32,7 +55,7 @@ The numbers with the custom KV Cache seem in-line with the previous runtime benc
 The active_MB column climbs linearly, where every 256-token step adds ~8.4 MB. At 2048 tokens the cache is ~67 MB, and the gap is 71.7 MB which points toward the KV cache concatenation temporarily holding onto a second full copy of the cache. Although the steady-state ceiling is noted to be ~898k tokens, the concat function's double buffer means that this would OOM when 2*cache_size fills the working set, so continuing naively would halve the amount of usable, working memory.
 
 
-### v0.1.1 - Naive prefill & decode
+### v0.1.1 Naive prefill & decode
 
 Method: 1 warmup, median of 5 reps, 128 tokens generated, greedy (argmax)
 

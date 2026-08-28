@@ -93,6 +93,72 @@ def print_timing_sweep(sizes=(64, 256, 1024, 4096)):
             f"{r['prefill_tok_per_sec']:>14.1f}"
         )
 
+def bench_batch(batch_size, prompt_len=64, max_tokens=64, trials=3):
+    batch = [make_synthetic_prompt(prompt_len)] * batch_size
+
+    logits, cache = _prefill_ids(batch)
+    list(_decode(logits, cache, max_tokens, stop_on_eos=False))
+
+    times = []
+    for _ in range(trials):
+        logits, cache = _prefill_ids(batch)
+        gen = _decode(logits, cache, max_tokens, stop_on_eos=False)
+        next(gen)
+        t = time.perf_counter()
+        for _ in range(max_tokens - 1):
+            next(gen)
+        times.append(time.perf_counter() - t)
+
+    decode_s = statistics.median(times)
+    per_seq_tokens = max_tokens - 1
+    return {
+        "batch": batch_size,
+        "agg_tok_per_sec": round(batch_size * per_seq_tokens / decode_s, 1),
+        "ms_per_step": round(decode_s * 1000 / per_seq_tokens, 2),
+    }
+
+def print_batch_sweep(sizes=(1, 2, 4, 8, 16)):
+    rows = [bench_batch(b) for b in sizes]
+    print(f"\n{'batch':>6} {'agg_tok/s':>11} {'ms/step':>9}")
+    for r in rows:
+        print(f"{r['batch']:>6} {r['agg_tok_per_sec']:>11.1f} {r['ms_per_step']:>9.2f}")
+
+def padding_waste(lengths, trials=3):
+    batch = [make_synthetic_prompt(n) for n in lengths]
+    real = sum(lengths)
+    total = len(lengths) * max(lengths)
+
+    _prefill_ids(batch)
+    times = []
+    for _ in range(trials):
+        t = time.perf_counter()
+        _prefill_ids(batch)
+        times.append(time.perf_counter() - t)
+    prefill_s = statistics.median(times)
+
+    return {
+        "lengths": lengths,
+        "real_tok": real,
+        "pad_tok": total - real,
+        "waste_pct": (total - real) / total * 100,
+        "prefill_ms": prefill_s * 1000,
+    }
+
+def print_padding_waste():
+    workloads = [
+        [64, 64, 64, 64],
+        [16, 48, 80, 112],
+        [8, 8, 8, 488],
+    ]
+    print(f"\n{'lengths':>22} {'real':>6} {'pad':>6} {'waste%':>7} {'prefill_ms':>11} {'wasted_ms':>10}")
+    for w in workloads:
+        r = padding_waste(w)
+        wasted_ms = r["prefill_ms"] * r["waste_pct"] / 100
+        print(
+            f"{str(r['lengths']):>22} {r['real_tok']:>6} {r['pad_tok']:>6} "
+            f"{r['waste_pct']:>7.1f} {r['prefill_ms']:>11.1f} {wasted_ms:>10.1f}"
+        )
+
 def print_memory_experiment():
     samples = memory_usage(make_synthetic_prompt(8))
     report = memory_report(samples, WEIGHTS_BYTES)
@@ -112,4 +178,6 @@ def print_memory_experiment():
 
 if __name__ == "__main__":
     print_timing_sweep()
+    print_batch_sweep()
+    print_padding_waste()
     print_memory_experiment()
