@@ -7,20 +7,24 @@ MODEL_NAME = "mlx-community/Llama-3.2-1B-Instruct-4bit"
 model, tokenizer = load(MODEL_NAME)
 WEIGHTS_BYTES = mx.get_active_memory()
 
-def pad_batch(batch: list[list[int]]) -> mx.array:
+def pad_batch(batch: list[list[int]]) -> tuple[mx.array, mx.array]:
     max_len = max(len(ids) for ids in batch)
-    padded_batch = []
+    padded_batch, pad_lens = [], []
     for ids in batch:
-        padded_ids = ([0] * (max_len - len(ids))) + ids
-        padded_batch.append(padded_ids)
-    return mx.array(padded_batch)
+        pad = max_len - len(ids)
+        padded_batch.append(([0] * pad) + ids)
+        pad_lens.append(pad)
+    return mx.array(padded_batch), mx.array(pad_lens)
 
 def _prefill_ids(batch: list[list[int]]) -> tuple[mx.array, list[KVCache]]:
-    prompt_grid = pad_batch(batch)
+    prompt_grid, pad_lens = pad_batch(batch)
     cache = make_prompt_cache(model)
+    if int(pad_lens.max()) > 0:
+        for c in cache:
+            c.pad_lens = pad_lens
     logits = model(prompt_grid, cache=cache)
     mx.eval(logits)
-    
+
     return logits, cache
 
 def prefill(prompts: list[str]) -> tuple[mx.array, list[KVCache]]:
