@@ -2,9 +2,25 @@
 - Hardware: M4 Max, 36GB unified memory
 - mlx-lm version: 0.31.3
 
-### v0.1.4 Static Batching and mask padded tokens
+### v0.1.5 Paged KV Cache Blocks
 
 Method: increasing number of prompts passed in batch and measure the throughput vs latency
+
+```
+pool: 128 blocks x 16 = 2048 tokens/layer,  mix=[8, 16, 32, 128]
+              max concurrent
+       paged              43
+  contiguous              16   (each reserves max_len=128)
+-> paged holds 2.7x more sequences in the same memory
+```
+
+Each sequence's KV pairs now are broken into fixed size blocks allocated within a shared pool, so only ceil(len/16) blocks are used instead of reserving worst-case length. The scattered blocks are gathered back to contiguous for the attention kernel (still using builtin), so this still incurs a compute cost.
+
+
+### v0.1.4 Static Batching and mask padded tokens
+
+Method: mixed-length workload paged into a shared block pool via the real
+cache until the allocator OOMs; contiguous baseline reserves max_len per sequence
 
 ```
  batch   agg_tok/s   ms/step

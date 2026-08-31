@@ -1,7 +1,11 @@
 import time
+import itertools
 import statistics
 import mlx.core as mx
-from engine import _prefill_ids, _decode, tokenizer, WEIGHTS_BYTES
+from engine import model, _prefill_ids, _decode, tokenizer, WEIGHTS_BYTES
+from paged_cache import make_block_pools, make_paged_cache
+
+HEADS, DIM = 8, 64   # Llama-3.2-1B kv heads / head dim
 
 def make_synthetic_prompt(n):
     tid = tokenizer.encode("the")[-1]
@@ -159,6 +163,33 @@ def print_padding_waste():
             f"{r['waste_pct']:>7.1f} {r['prefill_ms']:>11.1f} {wasted_ms:>10.1f}"
         )
 
+def max_concurrent_paged(mix, num_blocks, block_size):
+    pools = make_block_pools(model, num_blocks, block_size)
+    resident = []
+    for length in itertools.cycle(mix):
+        cache = make_paged_cache(pools)
+        kv = mx.zeros((1, HEADS, length, DIM), mx.float16)
+        try:
+            for c in cache:
+                c.update_and_fetch(kv, kv)
+        except RuntimeError:
+            break
+        mx.eval([p.k_pool for p in pools])
+        resident.append(cache)
+    return len(resident)
+
+def print_paged_concurrency(mix=(8, 16, 32, 128), num_blocks=128, block_size=16):
+    mix = list(mix)
+    budget = num_blocks * block_size
+    paged = max_concurrent_paged(mix, num_blocks, block_size)
+    contiguous = budget // max(mix)
+
+    print(f"\npool: {num_blocks} blocks x {block_size} = {budget} tokens/layer,  mix={mix}")
+    print(f"{'':>12}{'max concurrent':>16}")
+    print(f"{'paged':>12}{paged:>16}")
+    print(f"{'contiguous':>12}{contiguous:>16}   (each reserves max_len={max(mix)})")
+    print(f"-> paged holds {paged / contiguous:.1f}x more sequences in the same memory")
+
 def print_memory_experiment():
     samples = memory_usage(make_synthetic_prompt(8))
     report = memory_report(samples, WEIGHTS_BYTES)
@@ -180,4 +211,5 @@ if __name__ == "__main__":
     print_timing_sweep()
     print_batch_sweep()
     print_padding_waste()
+    print_paged_concurrency()
     print_memory_experiment()
