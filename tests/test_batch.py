@@ -1,5 +1,5 @@
 import mlx.core as mx
-from engine import _prefill_ids, tokenizer
+from src.model_runner import _prefill_ids, tokenizer
 
 def test_batched_logits_match_solo():
     a = [tokenizer.encode("the")[-1]] * 12

@@ -2,8 +2,8 @@ import time
 import itertools
 import statistics
 import mlx.core as mx
-from engine import model, _prefill_ids, _decode, tokenizer, WEIGHTS_BYTES
-from paged_cache import make_block_pools, make_paged_cache
+from src.model_runner import model, _prefill_ids, _decode, tokenizer, WEIGHTS_BYTES
+from src.cache.paged_cache import make_block_pools, make_paged_cache
 
 HEADS, DIM = 8, 64   # Llama-3.2-1B kv heads / head dim
 

@@ -1,6 +1,6 @@
 import mlx.core as mx
 from mlx_lm import load
-from cache import make_prompt_cache, KVCache
+from src.cache.cache import make_prompt_cache, KVCache
 
 MODEL_NAME = "mlx-community/Llama-3.2-1B-Instruct-4bit"
 

@@ -1,7 +1,7 @@
 import mlx.core as mx
 from mlx_lm.models.cache import make_prompt_cache as builtin_cache
-from engine import model, tokenizer
-from paged_cache import make_block_pools, make_paged_cache
+from src.model_runner import model, tokenizer
+from src.cache.paged_cache import make_block_pools, make_paged_cache
 
 def _greedy(cache, n=30):
     ids = mx.array(tokenizer.encode("The capital of France is"))

@@ -1,5 +1,5 @@
 import sys
-from engine import generate
+from src.model_runner import generate
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

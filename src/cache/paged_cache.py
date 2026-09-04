@@ -1,6 +1,6 @@
 from math import ceil
 import mlx.core as mx
-from block_allocator import BlockAllocator
+from src.cache.block_allocator import BlockAllocator
 
 class BlockPool:
     def __init__(self, num_blocks, block_size):
