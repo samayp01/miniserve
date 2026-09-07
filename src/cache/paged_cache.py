@@ -16,6 +16,9 @@ class BlockPool:
             self.k_pool = mx.zeros(shape, dtype=dtype)
             self.v_pool = mx.zeros(shape, dtype=dtype)
 
+    def has_free_blocks(self):
+        return len(self.allocator.free) > 0
+
 
 class PagedKVCache:
     def __init__(self, pool):
@@ -47,6 +50,45 @@ class PagedKVCache:
     def release(self):
         self.pool.allocator.release(self.block_table)
         self.block_table = []
+
+
+class BatchedPagedCache:
+    def __init__(self, caches):
+        self.caches = caches
+
+    @property
+    def offset(self):
+        return mx.array([c.offset for c in self.caches])
+
+    def make_mask(self, N, return_array=False, window_size=None):
+        lengths = mx.array([c.offset for c in self.caches]) + N
+        T_max = int(lengths.max())
+        k_idx = mx.arange(T_max)[None, :]
+        allowed = k_idx < lengths[:, None]
+        return allowed[:, None, None, :]
+
+    def update_and_fetch(self, keys, values):
+        _, heads, _, dim = keys.shape
+        ks, vs = [], []
+        for i, c in enumerate(self.caches):
+            k_i, v_i = c.update_and_fetch(keys[i:i+1], values[i:i+1])
+            ks.append(k_i)
+            vs.append(v_i)
+        T_max = max(k.shape[2] for k in ks)
+        return (
+            self._pad_stack(ks, T_max, heads, dim, keys.dtype),
+            self._pad_stack(vs, T_max, heads, dim, values.dtype),
+        )
+
+    @staticmethod
+    def _pad_stack(arrs, T_max, heads, dim, dtype):
+        out = []
+        for a in arrs:
+            gap = T_max - a.shape[2]
+            if gap:
+                a = mx.concat([a, mx.zeros((1, heads, gap, dim), dtype=dtype)], axis=2)
+            out.append(a)
+        return mx.concat(out, axis=0)
 
 
 def make_block_pools(model, num_blocks, block_size):
