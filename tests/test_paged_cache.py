@@ -14,7 +14,7 @@ def _greedy(cache, n=30):
     return out
 
 def test_paged_cache_matches_builtin():
-    # block_size=4 forces the ~36-token sequence across ~9 blocks -> exercises real paging
+    # block_size=4 forces the ~36-token sequence across ~9 blocks
     pools = make_block_pools(model, num_blocks=64, block_size=4)
     paged = make_paged_cache(pools)
     assert _greedy(paged) == _greedy(builtin_cache(model))
