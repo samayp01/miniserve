@@ -26,7 +26,7 @@ class PagedKVCache:
         self.block_table = []
         self.offset = 0
 
-    def update_and_fetch(self, keys, values):
+    def store(self, keys, values):
         pool = self.pool
         _, heads, L, dim = keys.shape
         pool.ensure(heads, dim, keys.dtype)
@@ -42,6 +42,9 @@ class PagedKVCache:
             pool.v_pool[b, :, s, :] = values[0, :, i, :]
         self.offset += L
 
+    def update_and_fetch(self, keys, values):
+        self.store(keys, values)
+        pool, heads, dim = self.pool, keys.shape[1], keys.shape[3]
         ids = mx.array(self.block_table)
         k = pool.k_pool[ids].transpose(1, 0, 2, 3).reshape(1, heads, -1, dim)[:, :, :self.offset, :]
         v = pool.v_pool[ids].transpose(1, 0, 2, 3).reshape(1, heads, -1, dim)[:, :, :self.offset, :]
@@ -61,34 +64,26 @@ class BatchedPagedCache:
         return mx.array([c.offset for c in self.caches])
 
     def make_mask(self, N, return_array=False, window_size=None):
-        lengths = mx.array([c.offset for c in self.caches]) + N
-        T_max = int(lengths.max())
-        k_idx = mx.arange(T_max)[None, :]
-        allowed = k_idx < lengths[:, None]
+        bs = self.caches[0].pool.block_size
+        lengths = [c.offset + N for c in self.caches]
+        max_nb = max(ceil(l / bs) for l in lengths)
+        T = max_nb * bs
+        real = mx.array(lengths)[:, None]
+        allowed = mx.arange(T)[None, :] < real
         return allowed[:, None, None, :]
 
     def update_and_fetch(self, keys, values):
         _, heads, _, dim = keys.shape
-        ks, vs = [], []
         for i, c in enumerate(self.caches):
-            k_i, v_i = c.update_and_fetch(keys[i:i+1], values[i:i+1])
-            ks.append(k_i)
-            vs.append(v_i)
-        T_max = max(k.shape[2] for k in ks)
-        return (
-            self._pad_stack(ks, T_max, heads, dim, keys.dtype),
-            self._pad_stack(vs, T_max, heads, dim, values.dtype),
-        )
+            c.store(keys[i:i+1], values[i:i+1])
 
-    @staticmethod
-    def _pad_stack(arrs, T_max, heads, dim, dtype):
-        out = []
-        for a in arrs:
-            gap = T_max - a.shape[2]
-            if gap:
-                a = mx.concat([a, mx.zeros((1, heads, gap, dim), dtype=dtype)], axis=2)
-            out.append(a)
-        return mx.concat(out, axis=0)
+        pool = self.caches[0].pool
+        bs, N = pool.block_size, len(self.caches)
+        max_nb = max(len(c.block_table) for c in self.caches)
+        grid = mx.array([c.block_table + [0] * (max_nb - len(c.block_table)) for c in self.caches])
+        k = pool.k_pool[grid].transpose(0, 2, 1, 3, 4).reshape(N, heads, max_nb * bs, dim)
+        v = pool.v_pool[grid].transpose(0, 2, 1, 3, 4).reshape(N, heads, max_nb * bs, dim)
+        return k, v
 
 
 def make_block_pools(model, num_blocks, block_size):
