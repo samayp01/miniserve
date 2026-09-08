@@ -10,7 +10,8 @@ WEIGHTS_BYTES = mx.get_active_memory()
 EOS_TOKEN = tokenizer.eos_token_id
 
 def prefill_request(req: Request) -> int:
-    logits = model(mx.array(req.prompt_tokens)[None], cache=req.cache)
+    context = req.prompt_tokens + req.output_tokens
+    logits = model(mx.array(context)[None], cache=req.cache)
     mx.eval(logits)
     req.prefilled = True
     return int(mx.argmax(logits[:, -1, :], axis=-1).item())

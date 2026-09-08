@@ -63,6 +63,28 @@ def print_scheduling_benchmark():
         print(f"{mode:>11}  {wall:5.2f}s  {tput:8.1f}  {p50:8.2f}s  {p99:8.2f}s")
 
 
+def _load_point(n_req, num_blocks=24, block_size=16, max_batch=8):
+    SHORT = ("Say hi in one word.", 8)
+    LONG = ("Write a detailed multi-paragraph essay about the Roman empire.", 48)
+    pools = make_block_pools(model, num_blocks, block_size)
+    engine = Engine(pools, max_batch=max_batch)
+    reqs = [Request(_toks((LONG if i % 3 == 0 else SHORT)[0]),
+                    max_output_tokens=(LONG if i % 3 == 0 else SHORT)[1]) for i in range(n_req)]
+    for r in reqs:
+        engine.add_request(r)
+    t0 = time.time(); engine.run(); wall = time.time() - t0
+    completed = sum(r.done for r in reqs)
+    total_tok = sum(len(r.output_tokens) for r in reqs)
+    return completed, wall, total_tok / wall, engine.preemptions
+
+def print_load_curve(loads=(4, 8, 16, 32, 64)):
+    print(f"\n{'requests':>9} {'completed':>10} {'wall':>7} {'tok/s':>8} {'preemptions':>12}")
+    for n in loads:
+        completed, wall, tput, pre = _load_point(n)
+        print(f"{n:>9} {f'{completed}/{n}':>10} {wall:6.2f}s {tput:8.1f} {pre:>12}")
+
+
 if __name__ == "__main__":
     print_paged_concurrency()
     print_scheduling_benchmark()
+    print_load_curve()
