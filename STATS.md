@@ -2,6 +2,19 @@
 - Hardware: M4 Max, 36GB unified memory
 - mlx-lm version: 0.31.3
 
+### v0.1.6 Continuous Batching
+
+Method: 16 requests (1 long ~96 tokens per 3 short ~8 tokens), max_batch=4. static = drain the batch fully before refilling; continuous = admit waiting requests into freed slots each decode step.
+
+```
+       mode    wall     tok/s   ttft_p50   ttft_p99
+     static   2.19s     181.1      1.30s      1.84s
+ continuous   1.05s     378.5      0.31s      1.01s
+```
+
+Continuous batching admits requests into freed slots every step instead of waiting for the full batch to drain, so a slow request no longer blocks the queue behind it. The result is a 2x improvement on throughput stemming from fewer decode steps and consequently a better amortization of the weight-loading overhead.
+
+
 ### v0.1.5 Paged KV Cache Blocks
 
 Method: increasing number of prompts passed in batch and measure the throughput vs latency
