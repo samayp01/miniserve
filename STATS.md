@@ -2,6 +2,47 @@
 - Hardware: M4 Max, 36GB unified memory
 - mlx-lm version: 0.31.3
 
+
+### Benchmarking Miniserve vs vLLM-Metal vs MLX-LM
+
+Method: Sweeping request rate (QPS 1-32) against three servers on same hardware, while recording TTFT/ITL/latency percentiles (capped max_tokens=128, 64 reqs/level)
+
+#### Miniserve:
+```
+  qps    tok/s   ttft_p50   ttft_p99   itl_p50   lat_p50   lat_p99
+    1       99       79ms      137ms     3.6ms     518ms     696ms
+    2      200       64ms      115ms     3.9ms     502ms     698ms
+    4      413       59ms      124ms     6.6ms     619ms    1285ms
+    8      644      726ms     1224ms    23.1ms    3062ms    3926ms
+   16      638     2365ms     4610ms    24.1ms    4431ms    6292ms
+   32      650     2757ms     6607ms    23.6ms    5477ms    7634ms
+```
+
+#### MLX-LM:
+```
+  qps    tok/s   ttft_p50   ttft_p99   itl_p50   lat_p50   lat_p99
+    1      116       91ms      501ms     3.2ms     485ms     825ms
+    2      199      159ms      525ms     3.2ms     479ms     979ms
+    4      408      363ms      638ms     3.8ms     745ms    1457ms
+    8      785      624ms     1221ms    21.0ms    2964ms    4054ms
+   16      848     1680ms     2139ms    18.3ms    3763ms    4988ms
+   32      880     2520ms     3595ms    17.9ms    4517ms    5290ms
+```
+
+#### vLLM-Metal
+```
+  qps    tok/s   ttft_p50   ttft_p99   itl_p50   lat_p50   lat_p99
+    1       98       44ms      370ms     7.3ms     782ms    1273ms
+    2      120       39ms       83ms     7.3ms     792ms    1792ms
+    4      391       76ms       96ms    28.7ms    3452ms    3873ms
+    8      540      112ms      195ms    46.0ms    5111ms    6475ms
+   16      564      138ms      230ms    55.5ms    6364ms    7448ms
+   32      587      158ms      312ms    74.9ms    9385ms    9800ms
+```
+
+All three servers demonstrate the scaling curve we'd expect with GPU becoming the bottleneck at higher concurrent requests. Miniserve reaches ~650 tok/s at 16-32 concurrent requests on Apple Silicon, compared with ~880 tok/s for MLX-LM and ~587 tok/s for vLLM-Metal under the same workload. Miniserve's single-request decode latency is within range of reference implementations, while its high-concurrency throughput indicates remaining overhead in batched execution.
+
+
 ### v0.1.6 Continuous Batching
 
 Method: 16 requests (1 long ~96 tokens per 3 short ~8 tokens), max_batch=4. static = drain the batch fully before refilling; continuous = admit waiting requests into freed slots each decode step.
