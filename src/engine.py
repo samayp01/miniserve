@@ -1,15 +1,16 @@
 from collections import deque
 from math import ceil
-from src.model_runner import EOS_TOKEN, prefill_request, batched_decode
+from src.model_runner import EOS_TOKEN, prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 
 class Engine:
-    def __init__(self, pools, max_batch=16, static=False):
+    def __init__(self, pools, max_batch=16, static=False, chunk_size=512):
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
         self.max_batch = max_batch
         self.static = static
+        self.chunk_size = chunk_size
         self.block_size = pools[0].block_size
         self.preemptions = 0
 
@@ -31,6 +32,7 @@ class Engine:
             c.release()
         req.cache = None
         req.prefilled = False
+        req.prefill_pos = 0
         self.running.remove(req)
         self.waiting.appendleft(req)
 
@@ -49,17 +51,22 @@ class Engine:
                 self.running.append(req)
                 free -= self._blocks_for(req)
 
-        new = [r for r in self.running if not r.prefilled]
-        ongoing = [r for r in self.running if r.prefilled and not r.done]
+        prefilling = [r for r in self.running if not r.prefilled]
+        decoding = [r for r in self.running if r.prefilled and not r.done]
 
-        for req in new:
-            self._record(req, prefill_request(req))
+        budget = self.chunk_size
+        for req in prefilling:
+            if budget <= 0:
+                break
+            token, used = prefill_chunk(req, budget)
+            self._record(req, token)
+            budget -= used
 
-        while ongoing and self._blocks_needed(ongoing) > self._free_blocks():
-            self._preempt(ongoing.pop())
+        while decoding and self._blocks_needed(decoding) > self._free_blocks():
+            self._preempt(decoding.pop())
 
-        if ongoing:
-            for req, token in zip(ongoing, batched_decode(ongoing)):
+        if decoding:
+            for req, token in zip(decoding, batched_decode(decoding)):
                 self._record(req, token)
 
         finished = [r for r in self.running if r.done]

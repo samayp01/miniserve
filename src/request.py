@@ -11,6 +11,7 @@ class Request:
         self.first_token_time = None
         self.finish_time = None
         self.prefilled = False
+        self.prefill_pos = 0
 
     def mark_done(self):
         self.done = True
