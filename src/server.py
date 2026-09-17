@@ -2,7 +2,7 @@ import json
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -62,7 +62,10 @@ class Prompt(BaseModel):
 async def generate(body: Prompt):
     ids = tokenizer.apply_chat_template([{"role": "user", "content": body.prompt}], add_generation_prompt=True)
     req = Request(ids, max_output_tokens=body.max_tokens)
-    engine.add_request(req)
+    try:
+        engine.add_request(req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     async def events():
         detok = StreamDetokenizer(tokenizer)

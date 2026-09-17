@@ -12,9 +12,16 @@ class Engine:
         self.static = static
         self.chunk_size = chunk_size
         self.block_size = pools[0].block_size
+        self.capacity = pools[0].num_blocks
         self.preemptions = 0
 
     def add_request(self, req):
+        needed = self._max_blocks_for(req)
+        if needed > self.capacity:
+            raise ValueError(
+                f"request needs up to {needed} blocks ({len(req.prompt_tokens)} prompt "
+                f"+ {req.max_output_tokens} output tokens) but the pool holds {self.capacity}"
+            )
         self.waiting.append(req)
 
     def _free_blocks(self):
@@ -22,6 +29,9 @@ class Engine:
 
     def _blocks_for(self, req):
         return ceil((len(req.prompt_tokens) + len(req.output_tokens)) / self.block_size)
+
+    def _max_blocks_for(self, req):
+        return ceil((len(req.prompt_tokens) + req.max_output_tokens) / self.block_size)
 
     def _blocks_needed(self, reqs):
         return sum(1 for r in reqs if r.cache[0].offset % self.block_size == 0)

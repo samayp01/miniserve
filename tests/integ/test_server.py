@@ -36,3 +36,14 @@ def test_generate(server):
     assert done["tokens"] > 0
     assert done["ttft_ms"] is not None
     assert done["latency_ms"] is not None
+
+
+def test_generate_rejects_request_larger_than_cache(server):
+    with httpx.Client(timeout=60) as client:
+        response = client.post(
+            f"{server}/generate",
+            json={"prompt": "Hello", "max_tokens": 100_000},
+        )
+
+    assert response.status_code == 400
+    assert "blocks" in response.json()["detail"]
