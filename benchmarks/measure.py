@@ -51,9 +51,10 @@ def _bench(mode, max_batch=4):
     engine.run()
     wall = time.time() - t0
 
-    ttfts = sorted(r.first_token_time - r.arrival_time for r in reqs)
+    ttfts = sorted(r.first_token_time - r.arrival_time
+                   for r in reqs if r.first_token_time is not None)
     total = sum(len(r.output_tokens) for r in reqs)
-    pct = lambda q: ttfts[min(len(ttfts) - 1, int(q * len(ttfts)))]
+    pct = lambda q: ttfts[min(len(ttfts) - 1, int(q * len(ttfts)))] if ttfts else float("nan")
     return wall, total / wall, pct(0.50), pct(0.99)
 
 def print_scheduling_benchmark():
@@ -73,15 +74,15 @@ def _load_point(n_req, num_blocks=24, block_size=16, max_batch=8):
     for r in reqs:
         engine.add_request(r)
     t0 = time.time(); engine.run(); wall = time.time() - t0
-    completed = sum(r.done for r in reqs)
+    assert all(r.done for r in reqs), "run() returned with requests still pending"
     total_tok = sum(len(r.output_tokens) for r in reqs)
-    return completed, wall, total_tok / wall, engine.preemptions
+    return wall, total_tok / wall, engine.preemptions
 
 def print_load_curve(loads=(4, 8, 16, 32, 64)):
-    print(f"\n{'requests':>9} {'completed':>10} {'wall':>7} {'tok/s':>8} {'preemptions':>12}")
+    print(f"\n{'requests':>9} {'wall':>7} {'tok/s':>8} {'preemptions':>12}")
     for n in loads:
-        completed, wall, tput, pre = _load_point(n)
-        print(f"{n:>9} {f'{completed}/{n}':>10} {wall:6.2f}s {tput:8.1f} {pre:>12}")
+        wall, tput, pre = _load_point(n)
+        print(f"{n:>9} {wall:6.2f}s {tput:8.1f} {pre:>12}")
 
 
 if __name__ == "__main__":

@@ -71,11 +71,12 @@ async def one_request(client, base, target, prompt, max_tokens):
 async def run_load(base, target, qps, num_requests, max_tokens):
     async with httpx.AsyncClient(timeout=None) as client:
         tasks = []
-        for _ in range(num_requests):
+        for i in range(num_requests):
             prompt = random.choice(PROMPTS)
             tasks.append(asyncio.create_task(
                 one_request(client, base, target, prompt, max_tokens)))
-            await asyncio.sleep(random.expovariate(qps))
+            if i < num_requests - 1:
+                await asyncio.sleep(random.expovariate(qps))
         return await asyncio.gather(*tasks)
 
 

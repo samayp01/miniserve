@@ -43,7 +43,7 @@ wait_ready() {
     local url="$1" i
     for ((i = 0; i < 180; i++)); do
         kill -0 "$SERVER_PID" 2>/dev/null || return 1
-        curl -s -o /dev/null -m 2 "$url" && return 0
+        curl -fs -o /dev/null -m 2 "$url" && return 0
         sleep 1
     done
     return 1
