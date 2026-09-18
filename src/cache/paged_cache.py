@@ -16,9 +16,6 @@ class BlockPool:
             self.k_pool = mx.zeros(shape, dtype=dtype)
             self.v_pool = mx.zeros(shape, dtype=dtype)
 
-    def has_free_blocks(self):
-        return len(self.allocator.free) > 0
-
 
 class PagedKVCache:
     def __init__(self, pool):
@@ -64,6 +61,16 @@ class BatchedPagedCache:
         return mx.array([c.offset for c in self.caches])
 
     def make_mask(self, N, return_array=False, window_size=None):
+        if N != 1:
+            raise NotImplementedError(
+                f"BatchedPagedCache builds one query row per sequence, got N={N}; "
+                "N > 1 needs a mask that is causal within the chunk"
+            )
+        if window_size is not None:
+            raise NotImplementedError(
+                f"BatchedPagedCache does not implement sliding-window attention "
+                f"(window_size={window_size}); every position is attended"
+            )
         bs = self.caches[0].pool.block_size
         lengths = [c.offset + N for c in self.caches]
         max_nb = max(ceil(l / bs) for l in lengths)
