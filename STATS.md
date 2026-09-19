@@ -3,6 +3,50 @@
 - mlx-lm version: 0.31.3
 
 
+### Benchmarking Redo: Chunked Prefill & Seeded benchmark for consistent testing
+
+Method: Sweeping request rate (QPS 1-32) against three servers on same hardware, while recording TTFT/ITL/latency percentiles (capped max_tokens=128, 64 reqs/level)
+
+Uses seeding for randomizing the prompt lengths passed into the servers to test with more consistent inputs and reproducible results.
+
+#### Miniserve:
+```
+  qps    tok/s   ttft_p50   ttft_p99   itl_p50   lat_p50   lat_p99
+    1       95       61ms      121ms     3.5ms     492ms     680ms
+    2      190       56ms      116ms     4.0ms     509ms     770ms
+    4      375       52ms      109ms     5.2ms     606ms    1175ms
+    8      622      134ms     1183ms    20.0ms    2190ms    3896ms
+   16      649     2147ms     4787ms    23.1ms    4454ms    6506ms
+   32      652     2809ms     7350ms    23.8ms    5550ms    8123ms
+```
+
+#### MLX-LM:
+```
+  qps    tok/s   ttft_p50   ttft_p99   itl_p50   lat_p50   lat_p99
+    1       96       66ms      490ms     3.0ms     442ms     885ms
+    2      191      129ms      511ms     3.1ms     445ms     944ms
+    4      373      341ms      723ms     3.8ms     677ms    1612ms
+    8      667      429ms     1011ms    13.6ms    1673ms    3083ms
+   16      877     1252ms     2260ms    22.5ms    3927ms    4613ms
+   32      926     2892ms     3771ms    17.0ms    4625ms    5639ms
+```
+
+#### vLLM-Metal
+```
+  qps    tok/s   ttft_p50   ttft_p99   itl_p50   lat_p50   lat_p99
+    1       95       38ms      355ms     8.2ms     938ms    1779ms
+    2      187       42ms      286ms    11.1ms    1359ms    2560ms
+    4      337       62ms      104ms    24.0ms    2547ms    3900ms
+    8      503      108ms      198ms    46.6ms    5287ms    6679ms
+   16      540      154ms      317ms    71.9ms    8518ms    9406ms
+   32      576      152ms      311ms    78.4ms    9441ms   10145ms
+```
+
+The numbers indicate the different architectural decisions made by each of the servers. Miniserve has a lean scheduler with very minimal overhead so its able to handle a low concurrency load until 8 QPS. MLX-LM uses stronger batching logic which helps out at larger QPS at a higher overhead cost which shows at a factor of 4-6x on p99 at lower QPS. vLLM-metal gives prefill high priority so the TTFT is especially low, but likely starves decode across the board.
+
+Miniserve keeps the p50 inter-token latency at ~23ms while TTFT climbs sharply after 8 QPS, indicating that in-flight requests keep decoding at full speed while new requests queue outside the batch.
+
+
 ### Benchmarking Miniserve vs vLLM-Metal vs MLX-LM
 
 Method: Sweeping request rate (QPS 1-32) against three servers on same hardware, while recording TTFT/ITL/latency percentiles (capped max_tokens=128, 64 reqs/level)

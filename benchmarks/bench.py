@@ -68,15 +68,16 @@ async def one_request(client, base, target, prompt, max_tokens):
     return {"send": t_send, "first": t_first, "done": t_done, "out_tokens": out_tokens}
 
 
-async def run_load(base, target, qps, num_requests, max_tokens):
+async def run_load(base, target, qps, num_requests, max_tokens, seed=0):
+    rng = random.Random(seed)
     async with httpx.AsyncClient(timeout=None) as client:
         tasks = []
         for i in range(num_requests):
-            prompt = random.choice(PROMPTS)
+            prompt = rng.choice(PROMPTS)
             tasks.append(asyncio.create_task(
                 one_request(client, base, target, prompt, max_tokens)))
             if i < num_requests - 1:
-                await asyncio.sleep(random.expovariate(qps))
+                await asyncio.sleep(rng.expovariate(qps))
         return await asyncio.gather(*tasks)
 
 
@@ -111,13 +112,14 @@ async def main():
     ap.add_argument("--num-requests", type=int, default=64)
     ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--warmup", type=int, default=2)
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     base = args.url or f"http://127.0.0.1:{PORTS[args.target]}"
 
     try:
         if args.warmup:
-            await run_load(base, args.target, 1000, args.warmup, args.max_tokens)
+            await run_load(base, args.target, 1000, args.warmup, args.max_tokens, args.seed)
     except httpx.ConnectError:
         print(f"could not reach {args.target} at {base} — is the server running?")
         return
@@ -125,7 +127,7 @@ async def main():
     print(f"\n{args.target} @ {base}  ({args.num_requests} reqs/level, max_tokens={args.max_tokens})\n")
     print(f"{'qps':>5}  {'tok/s':>7}  {'ttft_p50':>9}  {'ttft_p99':>9}  {'itl_p50':>8}  {'lat_p50':>8}  {'lat_p99':>8}")
     for qps in [float(x) for x in args.qps_list.split(",")]:
-        results = await run_load(base, args.target, qps, args.num_requests, args.max_tokens)
+        results = await run_load(base, args.target, qps, args.num_requests, args.max_tokens, args.seed)
         s = summarize(results)
         print(f"{qps:>5g}  {s['throughput']:>7.0f}  {s['ttft_p50']:>7.0f}ms  {s['ttft_p99']:>7.0f}ms  "
               f"{s['itl_p50']:>6.1f}ms  {s['lat_p50']:>6.0f}ms  {s['lat_p99']:>6.0f}ms")
