@@ -1,5 +1,4 @@
 import json
-import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -7,50 +6,18 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.model_runner import model, tokenizer
-from src.engine import Engine
-from src.request import Request
-from src.cache.paged_cache import make_block_pools
+from src.runtime import MiniserveRuntime
 
-pools = make_block_pools(model, num_blocks=4096, block_size=16)
-engine = Engine(pools)
+runtime = MiniserveRuntime(model, tokenizer)
 
-async def _engine_loop():
-    while True:
-        if engine.running or engine.waiting:
-            engine.step()
-            await asyncio.sleep(0)
-        else:
-            await asyncio.sleep(0.005)
 
 @asynccontextmanager
 async def lifespan(app):
-    task = asyncio.create_task(_engine_loop())
-    yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    async with runtime.running():
+        yield
+
 
 app = FastAPI(lifespan=lifespan)
-
-
-class StreamDetokenizer:
-    def __init__(self, tokenizer):
-        self.tok = tokenizer
-        self.tokens = []
-        self.prefix_offset = 0
-        self.read_offset = 0
-
-    def add(self, token):
-        self.tokens.append(token)
-        prefix = self.tok.decode(self.tokens[self.prefix_offset:self.read_offset], clean_up_tokenization_spaces=False)
-        whole = self.tok.decode(self.tokens[self.prefix_offset:], clean_up_tokenization_spaces=False)
-        if len(whole) > len(prefix) and not whole.endswith("�"):
-            self.prefix_offset = self.read_offset
-            self.read_offset = len(self.tokens)
-            return whole[len(prefix):]
-        return ""
 
 
 class Prompt(BaseModel):
@@ -58,43 +25,21 @@ class Prompt(BaseModel):
     max_tokens: int = 128
 
 
+def _sse(payload):
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 @app.post("/generate")
 async def generate(body: Prompt):
-    ids = tokenizer.apply_chat_template([{"role": "user", "content": body.prompt}], add_generation_prompt=True)
-    req = Request(ids, max_output_tokens=body.max_tokens)
     try:
-        engine.add_request(req)
+        stream = runtime.submit(body.prompt, body.max_tokens)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     async def events():
-        detok = StreamDetokenizer(tokenizer)
-        i = 0
-        emitted = 0
-        while True:
-            toks = list(req.output_tokens)
-            delta = ""
-            while i < len(toks):
-                delta += detok.add(toks[i])
-                i += 1
-            if delta:
-                emitted += len(delta)
-                yield f"data: {json.dumps({'delta': delta})}\n\n"
-            if req.done:
-                break
-            await asyncio.sleep(0.01)
-
-        full = tokenizer.decode(list(req.output_tokens), clean_up_tokenization_spaces=False)
-        if len(full) > emitted:
-            yield f"data: {json.dumps({'delta': full[emitted:]})}\n\n"
-
-        meta = {
-            "done": True,
-            "tokens": len(req.output_tokens),
-            "ttft_ms": round((req.first_token_time - req.arrival_time) * 1000, 1) if req.first_token_time else None,
-            "latency_ms": round((req.finish_time - req.arrival_time) * 1000, 1) if req.finish_time else None,
-        }
-        yield f"data: {json.dumps(meta)}\n\n"
+        async for delta in stream:
+            yield _sse({"delta": delta})
+        yield _sse({"done": True, **stream.stats})
 
     return StreamingResponse(events(), media_type="text/event-stream")
 
