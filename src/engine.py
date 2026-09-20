@@ -4,7 +4,7 @@ from src.model_runner import EOS_TOKEN, prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 
 class Engine:
-    def __init__(self, pools, max_batch=16, static=False, chunk_size=512):
+    def __init__(self, pools, max_batch=32, static=False, chunk_size=512):
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
