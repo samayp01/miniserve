@@ -32,11 +32,14 @@ class PagedKVCache:
         if blocks_needed > len(self.block_table):
             self.block_table += pool.allocator.allocate(blocks_needed - len(self.block_table))
 
-        for i in range(L):
+        i = 0
+        while i < L:
             p = self.offset + i
             b, s = self.block_table[p // pool.block_size], p % pool.block_size
-            pool.k_pool[b, :, s, :] = keys[0, :, i, :]
-            pool.v_pool[b, :, s, :] = values[0, :, i, :]
+            n = min(pool.block_size - s, L - i)
+            pool.k_pool[b, :, s:s + n, :] = keys[0, :, i:i + n, :]
+            pool.v_pool[b, :, s:s + n, :] = values[0, :, i:i + n, :]
+            i += n
         self.offset += L
 
     def update_and_fetch(self, keys, values):
