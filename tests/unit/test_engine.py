@@ -66,3 +66,30 @@ def test_run_terminates():
 
     assert req.done
     assert len(req.output_tokens) == 4
+
+
+def _drain(prompt_lengths, num_blocks, chunk_size):
+    pools = make_block_pools(model, num_blocks, BLOCK_SIZE)
+    engine = Engine(pools, chunk_size=chunk_size)
+    reqs = [Request(list(range(1, n + 1)), max_output_tokens=8) for n in prompt_lengths]
+    for req in reqs:
+        engine.add_request(req)
+    with time_limit(120):
+        engine.run()
+    return pools, reqs
+
+
+def test_admission_does_not_overcommit_blocks_reserved_by_chunked_prefill():
+    pools, reqs = _drain((100, 40, 40), num_blocks=10, chunk_size=16)
+    assert all(req.done for req in reqs)
+    for pool in pools:
+        assert sorted(pool.allocator.free) == list(range(10))
+
+
+@pytest.mark.parametrize("num_blocks", [8, 12, 16])
+@pytest.mark.parametrize("chunk_size", [8, 16, 64])
+def test_chunked_prefill_under_pressure_completes_and_returns_every_block(num_blocks, chunk_size):
+    pools, reqs = _drain((100, 40, 40, 70, 20), num_blocks, chunk_size)
+    assert all(req.done for req in reqs)
+    for pool in pools:
+        assert sorted(pool.allocator.free) == list(range(num_blocks))

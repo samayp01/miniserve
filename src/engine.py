@@ -25,7 +25,9 @@ class Engine:
         self.waiting.append(req)
 
     def _free_blocks(self):
-        return len(self.pools[0].allocator.free)
+        reserved = sum(self._blocks_for(r) - len(r.cache[0].block_table)
+                       for r in self.running if not r.prefilled)
+        return len(self.pools[0].allocator.free) - reserved
 
     def _blocks_for(self, req):
         return ceil((len(req.prompt_tokens) + len(req.output_tokens)) / self.block_size)
