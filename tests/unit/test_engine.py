@@ -93,3 +93,79 @@ def test_chunked_prefill_under_pressure_completes_and_returns_every_block(num_bl
     assert all(req.done for req in reqs)
     for pool in pools:
         assert sorted(pool.allocator.free) == list(range(num_blocks))
+
+
+ESSAY = "Write a detailed multi-paragraph essay about the Roman empire."
+
+
+def _chat(prompt):
+    return tokenizer.apply_chat_template([{"role": "user", "content": prompt}], add_generation_prompt=True)
+
+
+def _step_until(engine, condition, limit=500):
+    for _ in range(limit):
+        if condition():
+            return
+        engine.step()
+    raise AssertionError("condition never reached")
+
+
+@pytest.mark.parametrize("max_output_tokens", [0, -5])
+def test_rejects_non_positive_max_output_tokens(max_output_tokens):
+    engine = _engine()
+    with pytest.raises(ValueError, match="at least 1"):
+        engine.add_request(Request([1, 2, 3], max_output_tokens=max_output_tokens))
+    assert not engine.waiting
+
+
+def test_abort_removes_waiting_request_before_it_runs():
+    engine = _engine(num_blocks=64, max_batch=1)
+    first = Request(_chat("Say hi."), max_output_tokens=8)
+    second = Request(_chat("Say hi."), max_output_tokens=8)
+    engine.add_request(first)
+    engine.add_request(second)
+    engine.step()
+    assert list(engine.waiting) == [second]
+
+    engine.abort(second)
+    with time_limit(60):
+        engine.run()
+
+    assert first.done
+    assert not second.done
+    assert second.output_tokens == [] and second.cache is None
+
+
+def test_abort_running_request_returns_its_blocks_and_spares_the_rest():
+    pools = make_block_pools(model, 32, BLOCK_SIZE)
+    engine = Engine(pools)
+    victim = Request(_chat(ESSAY), max_output_tokens=64)
+    others = [Request(_chat("Name a primary color."), max_output_tokens=16) for _ in range(2)]
+    for req in [victim, *others]:
+        engine.add_request(req)
+    _step_until(engine, lambda: len(victim.output_tokens) >= 4)
+
+    engine.abort(victim)
+    assert victim not in engine.running and victim.cache is None
+    with time_limit(60):
+        engine.run()
+
+    assert not victim.done
+    assert all(req.done for req in others)
+    for pool in pools:
+        assert sorted(pool.allocator.free) == list(range(32))
+
+
+def test_abort_after_completion_does_not_double_free():
+    pools = make_block_pools(model, 16, BLOCK_SIZE)
+    engine = Engine(pools)
+    req = Request(_chat("Say hi."), max_output_tokens=8)
+    engine.add_request(req)
+    with time_limit(60):
+        engine.run()
+
+    engine.abort(req)
+    engine.abort(req)
+
+    for pool in pools:
+        assert sorted(pool.allocator.free) == list(range(16))

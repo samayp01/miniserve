@@ -16,6 +16,8 @@ class Engine:
         self.preemptions = 0
 
     def add_request(self, req):
+        if req.max_output_tokens < 1:
+            raise ValueError(f"max_output_tokens must be at least 1, got {req.max_output_tokens}")
         needed = self._max_blocks_for(req)
         if needed > self.capacity:
             raise ValueError(
@@ -23,6 +25,16 @@ class Engine:
                 f"+ {req.max_output_tokens} output tokens) but the pool holds {self.capacity}"
             )
         self.waiting.append(req)
+
+    def abort(self, req):
+        if req in self.waiting:
+            self.waiting.remove(req)
+        if req in self.running:
+            self.running.remove(req)
+        if req.cache is not None:
+            for c in req.cache:
+                c.release()
+            req.cache = None
 
     def _free_blocks(self):
         reserved = sum(self._blocks_for(r) - len(r.cache[0].block_table)

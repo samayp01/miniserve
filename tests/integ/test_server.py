@@ -1,6 +1,7 @@
 import json
 
 import httpx
+import pytest
 
 
 def test_generate(server):
@@ -47,3 +48,14 @@ def test_generate_rejects_request_larger_than_cache(server):
 
     assert response.status_code == 400
     assert "blocks" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("max_tokens", [0, -1])
+def test_generate_rejects_non_positive_max_tokens(server, max_tokens):
+    with httpx.Client(timeout=60) as client:
+        response = client.post(
+            f"{server}/generate",
+            json={"prompt": "Hello", "max_tokens": max_tokens},
+        )
+
+    assert response.status_code == 422

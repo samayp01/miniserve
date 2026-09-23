@@ -1,9 +1,16 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from src.engine import Engine
 from src.request import Request
 from src.cache.paged_cache import make_block_pools
+
+log = logging.getLogger("miniserve")
+
+
+class GenerationError(RuntimeError):
+    pass
 
 
 class StreamDetokenizer:
@@ -43,12 +50,14 @@ def _stats(req):
 
 
 class Stream:
-    def __init__(self, request, tokenizer):
+    def __init__(self, request, tokenizer, on_cancel):
         self.request = request
         self.stats = None
+        self.error = None
         self._detok = StreamDetokenizer(tokenizer)
         self._queue = asyncio.Queue()
         self._cursor = 0
+        self._on_cancel = on_cancel
 
     def advance(self):
         req = self.request
@@ -65,12 +74,21 @@ class Stream:
             self._queue.put_nowait(None)
         return req.done
 
+    def fail(self, error):
+        self.error = error
+        self._queue.put_nowait(None)
+
+    def cancel(self):
+        self._on_cancel(self)
+
     def __aiter__(self):
         return self
 
     async def __anext__(self):
         delta = await self._queue.get()
         if delta is None:
+            if self.error is not None:
+                raise GenerationError(str(self.error)) from self.error
             raise StopAsyncIteration
         return delta
 
@@ -86,17 +104,48 @@ class MiniserveRuntime:
             [{"role": "user", "content": prompt}], add_generation_prompt=True)
         req = Request(ids, max_output_tokens=max_tokens)
         self.engine.add_request(req)
-        stream = Stream(req, self.tokenizer)
+        stream = Stream(req, self.tokenizer, self.cancel)
         self.streams.append(stream)
         return stream
 
+    def cancel(self, stream):
+        if stream in self.streams:
+            self.streams.remove(stream)
+            self.engine.abort(stream.request)
+
+    def _settle(self, stream):
+        try:
+            return stream.advance()
+        except Exception as error:
+            log.exception("streaming request output failed")
+            self.engine.abort(stream.request)
+            stream.fail(error)
+            return True
+
     def _drain(self):
-        self.streams = [s for s in self.streams if not s.advance()]
+        self.streams = [s for s in self.streams if not self._settle(s)]
+
+    def _fail_running(self, error):
+        failed = list(self.engine.running)
+        for req in failed:
+            self.engine.abort(req)
+        failed_ids = {id(req) for req in failed}
+        survivors = []
+        for stream in self.streams:
+            if id(stream.request) not in failed_ids:
+                survivors.append(stream)
+            elif not self._settle(stream):
+                stream.fail(error)
+        self.streams = survivors
 
     async def run(self):
         while True:
             if self.engine.running or self.engine.waiting:
-                self.engine.step()
+                try:
+                    self.engine.step()
+                except Exception as error:
+                    log.exception("engine step failed")
+                    self._fail_running(error)
                 self._drain()
                 await asyncio.sleep(0)
             else:
