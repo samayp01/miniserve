@@ -3,6 +3,19 @@
 - mlx-lm version: 0.31.3
 
 
+### v0.2.1 Short vs Mixed-Length Prompts
+
+```
+                 tok/s @ 32 qps       itl_p99 @ 4 qps
+               legacy    mixed      legacy    mixed
+   miniserve      885      362        28ms    231ms
+      mlx-lm      840      298        15ms    293ms
+  vllm-metal      588      417        38ms    291ms
+```
+
+Adding long prompts (`mixed`: 15% at 700-1500 tokens) cuts throughput by 29-65% and raises p99 inter-token latency 8-20x on every server, because long prefill chunks stall the decode batch. Miniserve's queueing is caused by `max_batch=32`, not memory (the KV pool is at most 26% used).
+
+
 ### Benchmarking Redo: Chunked Prefill & Seeded benchmark for consistent testing
 
 Method: Sweeping request rate (QPS 1-32) against three servers on same hardware, while recording TTFT/ITL/latency percentiles (capped max_tokens=128, 64 reqs/level)
