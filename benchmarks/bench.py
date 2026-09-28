@@ -197,7 +197,7 @@ async def main():
     async with httpx.AsyncClient(timeout=None) as client:
         try:
             if args.warmup:
-                await run_load(client, base, args.target, workload.schedule(1000, args.warmup), args.max_tokens)
+                await run_load(client, base, args.target, workload.schedule(1000, args.warmup, "warmup"), args.max_tokens)
         except httpx.ConnectError:
             print(f"could not reach {args.target} at {base} — is the server running?")
             return
@@ -212,7 +212,7 @@ async def main():
         print(header)
 
         for qps in [float(x) for x in args.qps_list.split(",")]:
-            schedule = workload.schedule(qps, args.num_requests)
+            schedule = workload.schedule(qps, args.num_requests, f"qps{qps:g}")
             stop = asyncio.Event()
             sampler = asyncio.create_task(sample_metrics(client, base, stop)) if has_metrics else None
             results = await run_load(client, base, args.target, schedule, args.max_tokens)

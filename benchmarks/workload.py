@@ -60,31 +60,30 @@ class Workload:
         return len(self.tok.apply_chat_template(
             [{"role": "user", "content": text}], add_generation_prompt=True, return_dict=False))
 
-    def _passage(self, rng, target):
-        overhead = self._templated_len(INSTRUCTION.strip())
+    def _passage(self, rng, target, nonce):
+        overhead = self._templated_len(nonce + INSTRUCTION.strip())
         sentences, ids = [], []
         while len(ids) < target - overhead:
             sentences.append(rng.choice(PASSAGE))
             ids = self.tok.encode(" ".join(sentences), add_special_tokens=False)
-        return self.tok.decode(ids[:target - overhead], clean_up_tokenization_spaces=False) + INSTRUCTION
+        return nonce + self.tok.decode(ids[:target - overhead], clean_up_tokenization_spaces=False) + INSTRUCTION
 
-    def _prompt(self, rng):
+    def _prompt(self, rng, nonce):
         if len(self.buckets) == 1:
             bucket = self.buckets[0]
         else:
             bucket = rng.choices(self.buckets, weights=[b.weight for b in self.buckets])[0]
         if bucket.tokens is None:
-            text = rng.choice(QUESTIONS)
+            text = nonce + rng.choice(QUESTIONS)
         else:
-            text = self._passage(rng, rng.randint(*bucket.tokens))
+            text = self._passage(rng, rng.randint(*bucket.tokens), nonce)
         return {"bucket": bucket.name, "prompt": text, "prompt_tokens": self._templated_len(text)}
 
-    def schedule(self, qps, num_requests):
-        """Requests with the gap (seconds) to wait after sending each; identical for a given seed and qps."""
+    def schedule(self, qps, num_requests, tag):
         rng = random.Random(self.seed)
         reqs = []
         for i in range(num_requests):
-            req = self._prompt(rng)
+            req = self._prompt(rng, f"[{tag}-{i}] ")
             req["gap"] = rng.expovariate(qps) if i < num_requests - 1 else 0.0
             reqs.append(req)
         return reqs

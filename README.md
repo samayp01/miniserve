@@ -55,6 +55,8 @@ Arguments passed to `run_all.sh` go through to the bench, e.g. `./benchmarks/run
 - `mixed` (default): 60% short chat questions, 25% medium (200–450 prompt tokens), 15% long (700–1500 prompt tokens, longer than one prefill chunk)
 - `legacy`: only the short questions, matching the runs in STATS.md before the workload spec existed
 
+Every prompt starts with a prefix unique to its QPS level and position, so no two requests share more than the system header. Without it, every level would resend the same prompts and servers with a prefix cache (vllm-metal, mlx-lm) would skip prefill, measuring cache hits instead of the engine.
+
 Each run writes JSON to `benchmarks/results/<spec>/<target>-<git sha>.json`. It includes the environment, config, per-level summaries, per-request token timestamps and (for miniserve) server metrics sampled from `GET /metrics`.
 
 Internal microbenchmarks (paging, batching, preemption):
