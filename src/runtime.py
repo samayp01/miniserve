@@ -2,6 +2,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+import mlx.core as mx
+
 from src.engine import Engine
 from src.request import Request
 from src.cache.paged_cache import make_block_pools
@@ -107,6 +109,17 @@ class MiniserveRuntime:
         stream = Stream(req, self.tokenizer, self.cancel)
         self.streams.append(stream)
         return stream
+
+    def metrics(self):
+        return {
+            "waiting": len(self.engine.waiting),
+            "running": len(self.engine.running),
+            "preemptions": self.engine.preemptions,
+            "free_blocks": len(self.engine.pools[0].allocator.free),
+            "total_blocks": self.engine.capacity,
+            "active_mb": round(mx.get_active_memory() / 2**20, 1),
+            "peak_mb": round(mx.get_peak_memory() / 2**20, 1),
+        }
 
     def cancel(self, stream):
         if stream in self.streams:

@@ -51,6 +51,11 @@ async def generate(body: Prompt, request: Request):
     return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")
 
 
+@app.get("/metrics")
+async def metrics():
+    return runtime.metrics()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

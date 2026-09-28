@@ -173,3 +173,14 @@ def test_streaming_failure_is_isolated_to_its_stream():
     assert healthy_error is None and "".join(healthy_deltas).strip()
     assert runtime.streams == []
     assert _all_blocks_free(runtime)
+
+
+def test_metrics_reports_engine_state():
+    runtime = _runtime()
+    runtime.submit("What is the capital of France?", max_tokens=4)
+    metrics = runtime.metrics()
+    assert metrics["waiting"] == 1
+    assert metrics["running"] == 0
+    assert metrics["preemptions"] == 0
+    assert metrics["free_blocks"] == metrics["total_blocks"] == 64
+    assert metrics["active_mb"] > 0

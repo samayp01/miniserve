@@ -50,6 +50,13 @@ Benchmark a single running server:
 uv run python -m benchmarks.bench --target miniserve   # or mlx-lm, vllm-metal
 ```
 
+Arguments passed to `run_all.sh` go through to the bench, e.g. `./benchmarks/run_all.sh --spec legacy`. Workload specs live in [benchmarks/workload.py](benchmarks/workload.py):
+
+- `mixed` (default): 60% short chat questions, 25% medium (200–450 prompt tokens), 15% long (700–1500 prompt tokens, longer than one prefill chunk)
+- `legacy`: only the short questions, matching the runs in STATS.md before the workload spec existed
+
+Each run writes JSON to `benchmarks/results/<spec>/<target>-<git sha>.json`. It includes the environment, config, per-level summaries, per-request token timestamps and (for miniserve) server metrics sampled from `GET /metrics`.
+
 Internal microbenchmarks (paging, batching, preemption):
 
 ```bash
