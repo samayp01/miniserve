@@ -4,7 +4,7 @@ from mlx_vlm.models.cache import KVCache
 from mlx_vlm.prompt_utils import apply_chat_template
 from mlx_vlm.utils import prepare_inputs
 
-from src.vlm import load_vlm
+from src.models.smolvlm import load_vlm
 
 model, processor = load_vlm()
 IMAGE_TOKEN = model.config.image_token_index

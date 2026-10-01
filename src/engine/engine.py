@@ -1,10 +1,11 @@
 from collections import deque
 from math import ceil
-from src.engine.model_runner import EOS_TOKEN, prefill_chunk, batched_decode
+from src.engine.model_runner import llama, prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 
 class Engine:
-    def __init__(self, pools, max_batch=32, static=False, chunk_size=512):
+    def __init__(self, pools, max_batch=32, static=False, chunk_size=512, adapter=llama):
+        self.adapter = adapter
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
@@ -61,7 +62,7 @@ class Engine:
         self.waiting.appendleft(req)
 
     def _record(self, req, token):
-        if token == EOS_TOKEN or len(req.output_tokens) >= req.max_output_tokens:
+        if token == self.adapter.eos_token or len(req.output_tokens) >= req.max_output_tokens:
             req.mark_done()
         else:
             req.yield_token(token)
@@ -82,7 +83,7 @@ class Engine:
         for req in prefilling:
             if budget <= 0:
                 break
-            token, used = prefill_chunk(req, budget)
+            token, used = prefill_chunk(req, budget, self.adapter)
             self._record(req, token)
             budget -= used
 
@@ -90,7 +91,7 @@ class Engine:
             self._preempt(decoding.pop())
 
         if decoding:
-            for req, token in zip(decoding, batched_decode(decoding)):
+            for req, token in zip(decoding, batched_decode(decoding, self.adapter)):
                 self._record(req, token)
 
         finished = [r for r in self.running if r.done]

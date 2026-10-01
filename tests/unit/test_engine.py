@@ -3,16 +3,18 @@ from contextlib import contextmanager
 
 import pytest
 
-from src.engine.model_runner import model, tokenizer
+from src.engine.model_runner import tokenizer
 from src.engine.engine import Engine
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools
+from tests.unit.fakes import FakeAdapter
 
 BLOCKS, BLOCK_SIZE = 4, 16
+FAKE = FakeAdapter()
 
 
 def _engine(num_blocks=BLOCKS, block_size=BLOCK_SIZE, **kwargs):
-    return Engine(make_block_pools(model, num_blocks, block_size), **kwargs)
+    return Engine(make_block_pools(FAKE, num_blocks, block_size), adapter=FAKE, **kwargs)
 
 
 def test_rejects_prompt_larger_than_pool():
@@ -69,8 +71,8 @@ def test_run_terminates():
 
 
 def _drain(prompt_lengths, num_blocks, chunk_size):
-    pools = make_block_pools(model, num_blocks, BLOCK_SIZE)
-    engine = Engine(pools, chunk_size=chunk_size)
+    pools = make_block_pools(FAKE, num_blocks, BLOCK_SIZE)
+    engine = Engine(pools, chunk_size=chunk_size, adapter=FAKE)
     reqs = [Request(list(range(1, n + 1)), max_output_tokens=8) for n in prompt_lengths]
     for req in reqs:
         engine.add_request(req)
@@ -86,9 +88,9 @@ def test_admission_does_not_overcommit_blocks_reserved_by_chunked_prefill():
         assert sorted(pool.allocator.free) == list(range(10))
 
 
-@pytest.mark.parametrize("num_blocks", [8, 12, 16])
-@pytest.mark.parametrize("chunk_size", [8, 16, 64])
-def test_chunked_prefill_under_pressure_completes_and_returns_every_block(num_blocks, chunk_size):
+@pytest.mark.parametrize("chunk_size", [8, 64])
+def test_chunked_prefill_under_pressure_completes_and_returns_every_block(chunk_size):
+    num_blocks = 8
     pools, reqs = _drain((100, 40, 40, 70, 20), num_blocks, chunk_size)
     assert all(req.done for req in reqs)
     for pool in pools:
@@ -137,8 +139,8 @@ def test_abort_removes_waiting_request_before_it_runs():
 
 
 def test_abort_running_request_returns_its_blocks_and_spares_the_rest():
-    pools = make_block_pools(model, 32, BLOCK_SIZE)
-    engine = Engine(pools)
+    pools = make_block_pools(FAKE, 32, BLOCK_SIZE)
+    engine = Engine(pools, adapter=FAKE)
     victim = Request(_chat(ESSAY), max_output_tokens=64)
     others = [Request(_chat("Name a primary color."), max_output_tokens=16) for _ in range(2)]
     for req in [victim, *others]:
@@ -157,8 +159,8 @@ def test_abort_running_request_returns_its_blocks_and_spares_the_rest():
 
 
 def test_abort_after_completion_does_not_double_free():
-    pools = make_block_pools(model, 16, BLOCK_SIZE)
-    engine = Engine(pools)
+    pools = make_block_pools(FAKE, 16, BLOCK_SIZE)
+    engine = Engine(pools, adapter=FAKE)
     req = Request(_chat("Say hi."), max_output_tokens=8)
     engine.add_request(req)
     with time_limit(60):

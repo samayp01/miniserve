@@ -2,10 +2,11 @@ import signal
 
 import pytest
 
-from src.engine.model_runner import model, tokenizer
+from src.engine.model_runner import llama, tokenizer
 from src.engine.engine import Engine
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools
+from tests.unit.fakes import FakeAdapter
 
 PROMPTS = [
     "Write a detailed multi-paragraph essay about the Roman empire.",
@@ -17,6 +18,7 @@ BLOCK_SIZE = 16
 TIGHT_BLOCKS = 14
 ROOMY_BLOCKS = 64
 RUN_TIMEOUT = 60
+FAKE = FakeAdapter()
 
 
 class CountingRequest(Request):
@@ -34,9 +36,9 @@ def _expired(signum, frame):
     raise TimeoutError(f"engine.run() did not return within {RUN_TIMEOUT}s")
 
 
-def _run(num_blocks):
-    pools = make_block_pools(model, num_blocks, BLOCK_SIZE)
-    engine = Engine(pools, max_batch=8)
+def _run(num_blocks, adapter):
+    pools = make_block_pools(adapter, num_blocks, BLOCK_SIZE)
+    engine = Engine(pools, max_batch=8, adapter=adapter)
     reqs = []
     for prompt in PROMPTS:
         ids = tokenizer.apply_chat_template(
@@ -57,12 +59,22 @@ def _run(num_blocks):
 
 @pytest.fixture(scope="module")
 def roomy():
-    return _run(ROOMY_BLOCKS)
+    return _run(ROOMY_BLOCKS, FAKE)
 
 
 @pytest.fixture(scope="module")
 def tight():
-    return _run(TIGHT_BLOCKS)
+    return _run(TIGHT_BLOCKS, FAKE)
+
+
+@pytest.fixture(scope="module")
+def roomy_real():
+    return _run(ROOMY_BLOCKS, llama)
+
+
+@pytest.fixture(scope="module")
+def tight_real():
+    return _run(TIGHT_BLOCKS, llama)
 
 
 def test_roomy_pool_never_preempts(roomy):
@@ -75,9 +87,9 @@ def test_tight_pool_preempts(tight):
     assert engine.preemptions > 0
 
 
-def test_preempted_output_matches_unpreempted(tight, roomy):
-    _, _, tight_reqs = tight
-    _, _, roomy_reqs = roomy
+def test_preempted_output_matches_unpreempted(tight_real, roomy_real):
+    _, _, tight_reqs = tight_real
+    _, _, roomy_reqs = roomy_real
     for prompt, preempted, clean in zip(PROMPTS, tight_reqs, roomy_reqs):
         assert preempted.output_tokens == clean.output_tokens, prompt
 
