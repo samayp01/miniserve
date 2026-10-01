@@ -33,6 +33,7 @@ async def one_request(client, base, target, prompt, max_tokens):
     t_send = time.perf_counter()
     token_times = []
     reported_tokens = None
+    stages = None
 
     async with client.stream("POST", base + path, json=payload) as resp:
         resp.raise_for_status()
@@ -48,6 +49,7 @@ async def one_request(client, base, target, prompt, max_tokens):
                     token_times.append(time.perf_counter())
                 if obj.get("done"):
                     reported_tokens = obj.get("tokens")
+                    stages = {k: obj.get(k) for k in ("queue_ms", "prefill_ms", "decode_ms")}
             else:
                 choices = obj.get("choices") or []
                 if choices and (choices[0].get("delta") or {}).get("content"):
@@ -60,6 +62,7 @@ async def one_request(client, base, target, prompt, max_tokens):
         "token_times": token_times,
         "done": time.perf_counter(),
         "out_tokens": reported_tokens if reported_tokens is not None else len(token_times),
+        "stages": stages,
     }
 
 
@@ -139,6 +142,7 @@ def request_record(r):
         "prompt_tokens": r["prompt_tokens"],
         "out_tokens": r["out_tokens"],
         "latency_ms": round((r["done"] - r["send"]) * 1000, 1),
+        "stages": r["stages"],
         "token_ms": [round((t - r["send"]) * 1000, 1) for t in r["token_times"]],
     }
 

@@ -73,6 +73,7 @@ class Engine:
             while self.waiting and len(self.running) < self.max_batch and self._blocks_for(self.waiting[0]) <= free:
                 req = self.waiting.popleft()
                 req.cache = make_paged_cache(self.pools)
+                req.mark_admitted()
                 self.running.append(req)
                 free -= self._blocks_for(req)
 

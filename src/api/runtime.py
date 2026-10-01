@@ -43,11 +43,18 @@ class StreamDetokenizer:
         return whole[len(prefix):]
 
 
+def _ms(start, end):
+    return round((end - start) * 1000, 1) if start and end else None
+
+
 def _stats(req):
     return {
         "tokens": len(req.output_tokens),
-        "ttft_ms": round((req.first_token_time - req.arrival_time) * 1000, 1) if req.first_token_time else None,
-        "latency_ms": round((req.finish_time - req.arrival_time) * 1000, 1) if req.finish_time else None,
+        "ttft_ms": _ms(req.arrival_time, req.first_token_time),
+        "latency_ms": _ms(req.arrival_time, req.finish_time),
+        "queue_ms": _ms(req.arrival_time, req.admitted_time),
+        "prefill_ms": _ms(req.admitted_time, req.first_token_time),
+        "decode_ms": _ms(req.first_token_time, req.finish_time),
     }
 
 

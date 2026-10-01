@@ -171,3 +171,11 @@ def test_abort_after_completion_does_not_double_free():
 
     for pool in pools:
         assert sorted(pool.allocator.free) == list(range(16))
+
+
+def test_timestamps_follow_the_stages_in_order():
+    engine = _engine(num_blocks=64)
+    req = Request(list(range(20)), max_output_tokens=4)
+    engine.add_request(req)
+    engine.run()
+    assert req.arrival_time <= req.admitted_time <= req.first_token_time <= req.finish_time

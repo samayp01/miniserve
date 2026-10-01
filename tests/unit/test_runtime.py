@@ -3,7 +3,8 @@ import asyncio
 import pytest
 
 from src.engine.model_runner import model, tokenizer
-from src.api.runtime import GenerationError, MiniserveRuntime, StreamDetokenizer
+from src.engine.request import Request
+from src.api.runtime import GenerationError, MiniserveRuntime, StreamDetokenizer, _stats
 
 PARTY = [9468, 236, 231]
 ROCKET_WAVE = [9468, 248, 222, 9468, 234, 232]
@@ -184,3 +185,11 @@ def test_metrics_reports_engine_state():
     assert metrics["preemptions"] == 0
     assert metrics["free_blocks"] == metrics["total_blocks"] == 64
     assert metrics["active_mb"] > 0
+
+
+def test_stats_split_ttft_into_queue_and_prefill():
+    req = Request([1])
+    req.arrival_time, req.admitted_time, req.first_token_time, req.finish_time = 10.0, 10.5, 10.75, 12.0
+    stats = _stats(req)
+    assert (stats["queue_ms"], stats["prefill_ms"], stats["decode_ms"]) == (500.0, 250.0, 1250.0)
+    assert stats["queue_ms"] + stats["prefill_ms"] == stats["ttft_ms"]
