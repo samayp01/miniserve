@@ -1,4 +1,10 @@
-from src.engine.request import Request
+import mlx.core as mx
+
+from src.engine.model_runner import embed
+from src.engine.request import Media, Request
+from tests.unit.fakes import FakeAdapter
+
+FAKE = FakeAdapter()
 
 def test_defaults():
     req = Request([1, 2, 3])
@@ -34,3 +40,24 @@ def test_mark_done():
     req.mark_done()
     assert req.done is True
     assert req.finish_time is not None
+
+def _image_request():
+    image = Media(positions=[3, 4, 5, 6], embeds=mx.array([[10.0], [11.0], [12.0], [13.0]]))
+    return Request(list(range(10)), media=[image])
+
+def test_embed_places_media_rows_at_their_positions():
+    assert embed(_image_request(), 0, 10, FAKE)[0, :, 0].tolist() == [0, 0, 0, 10, 11, 12, 13, 0, 0, 0]
+
+def test_embed_splits_media_across_chunks():
+    req = _image_request()
+    assert embed(req, 0, 5, FAKE)[0, :, 0].tolist() == [0, 0, 0, 10, 11]
+    assert embed(req, 5, 10, FAKE)[0, :, 0].tolist() == [12, 13, 0, 0, 0]
+
+def test_embed_handles_several_media_items():
+    a = Media(positions=[1, 2], embeds=mx.array([[5.0], [6.0]]))
+    b = Media(positions=[7], embeds=mx.array([[9.0]]))
+    req = Request(list(range(10)), media=[a, b])
+    assert embed(req, 0, 10, FAKE)[0, :, 0].tolist() == [0, 5, 6, 0, 0, 0, 0, 9, 0, 0]
+
+def test_text_request_has_no_media():
+    assert Request([1, 2, 3]).media == []

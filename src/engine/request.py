@@ -1,8 +1,19 @@
 import time
+from dataclasses import dataclass
+
+import mlx.core as mx
+
+
+@dataclass
+class Media:
+    positions: list[int]
+    embeds: mx.array
+
 
 class Request:
-    def __init__(self, prompt_tokens, max_output_tokens=128):
+    def __init__(self, prompt_tokens, max_output_tokens=128, media=()):
         self.prompt_tokens = prompt_tokens
+        self.media = list(media)
         self.cache = None
         self.output_tokens = []
         self.done = False

@@ -9,7 +9,13 @@ WEIGHTS_BYTES = mx.get_active_memory()
 
 def embed(req: Request, start: int, end: int, adapter) -> mx.array:
     context = req.prompt_tokens + req.output_tokens
-    return adapter.embed_tokens(context[start:end])
+    vectors = adapter.embed_tokens(context[start:end])
+    for item in req.media:
+        rows = [i for i, p in enumerate(item.positions) if start <= p < end]
+        if rows:
+            seats = [item.positions[i] - start for i in rows]
+            vectors[0, mx.array(seats)] = item.embeds[mx.array(rows)]
+    return vectors
 
 def prefill_chunk(req: Request, chunk_size: int, adapter=llama) -> tuple[int | None, int]:
     context = req.prompt_tokens + req.output_tokens
