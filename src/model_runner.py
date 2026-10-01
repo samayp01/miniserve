@@ -9,10 +9,15 @@ model, tokenizer = load(MODEL_NAME)
 WEIGHTS_BYTES = mx.get_active_memory()
 EOS_TOKEN = tokenizer.eos_token_id
 
+def embed(req: Request, start: int, end: int) -> mx.array:
+    context = req.prompt_tokens + req.output_tokens
+    return model.model.embed_tokens(mx.array(context[start:end]))[None]
+
 def prefill_chunk(req: Request, chunk_size: int) -> tuple[int | None, int]:
     context = req.prompt_tokens + req.output_tokens
     chunk = context[req.prefill_pos:req.prefill_pos + chunk_size]
-    logits = model(mx.array(chunk)[None], cache=req.cache)
+    vectors = embed(req, req.prefill_pos, req.prefill_pos + len(chunk))
+    logits = model(None, cache=req.cache, input_embeddings=vectors)
     mx.eval(logits)
     req.prefill_pos += len(chunk)
     if req.prefill_pos >= len(context):
