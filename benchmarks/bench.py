@@ -49,7 +49,7 @@ async def one_request(client, base, target, prompt, max_tokens):
                     token_times.append(time.perf_counter())
                 if obj.get("done"):
                     reported_tokens = obj.get("tokens")
-                    stages = {k: obj.get(k) for k in ("queue_ms", "prefill_ms", "decode_ms")}
+                    stages = {k: obj.get(k) for k in ("queue_ms", "encode_ms", "prefill_ms", "decode_ms")}
             else:
                 choices = obj.get("choices") or []
                 if choices and (choices[0].get("delta") or {}).get("content"):

@@ -53,7 +53,8 @@ def _stats(req):
         "ttft_ms": _ms(req.arrival_time, req.first_token_time),
         "latency_ms": _ms(req.arrival_time, req.finish_time),
         "queue_ms": _ms(req.arrival_time, req.admitted_time),
-        "prefill_ms": _ms(req.admitted_time, req.first_token_time),
+        "encode_ms": _ms(req.admitted_time, req.encoded_time),
+        "prefill_ms": _ms(req.encoded_time, req.first_token_time),
         "decode_ms": _ms(req.first_token_time, req.finish_time),
     }
 

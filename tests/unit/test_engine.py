@@ -179,7 +179,7 @@ def test_timestamps_follow_the_stages_in_order():
     req = Request(list(range(20)), max_output_tokens=4)
     engine.add_request(req)
     engine.run()
-    assert req.arrival_time <= req.admitted_time <= req.first_token_time <= req.finish_time
+    assert req.arrival_time <= req.admitted_time <= req.encoded_time <= req.first_token_time <= req.finish_time
 
 
 def _media_request(pieces=17, per_piece=2):
@@ -225,3 +225,15 @@ def test_preemption_does_not_re_encode():
         engine.run()
     assert req.done
     assert fake.encode_calls == calls
+
+
+def test_media_is_marked_encoded_only_after_its_last_piece():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    req = _media_request()
+    engine.add_request(req)
+    for _ in range(4):
+        engine.step()
+        assert req.encoded_time is None
+    engine.step()
+    assert req.admitted_time < req.encoded_time

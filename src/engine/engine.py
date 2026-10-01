@@ -97,7 +97,10 @@ class Engine:
                 free -= self._blocks_for(req)
 
         self._encode()
-        prefilling = [r for r in self.running if not r.prefilled and r.media_ready]
+        ready = [r for r in self.running if r.media_ready]
+        for req in ready:
+            req.mark_encoded()
+        prefilling = [r for r in ready if not r.prefilled]
         decoding = [r for r in self.running if r.prefilled and not r.done]
 
         budget = self.chunk_size

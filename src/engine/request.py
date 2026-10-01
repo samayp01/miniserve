@@ -30,6 +30,7 @@ class Request:
         self.max_output_tokens = max_output_tokens
         self.arrival_time = time.time()
         self.admitted_time = None
+        self.encoded_time = None
         self.first_token_time = None
         self.finish_time = None
         self.prefilled = False
@@ -42,6 +43,10 @@ class Request:
     def mark_admitted(self):
         if self.admitted_time is None:
             self.admitted_time = time.time()
+
+    def mark_encoded(self):
+        if self.encoded_time is None:
+            self.encoded_time = time.time()
 
     def mark_done(self):
         self.done = True
