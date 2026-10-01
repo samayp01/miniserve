@@ -50,6 +50,7 @@ def _ms(start, end):
 def _stats(req):
     return {
         "tokens": len(req.output_tokens),
+        "prompt_tokens": len(req.prompt_tokens),
         "ttft_ms": _ms(req.arrival_time, req.first_token_time),
         "latency_ms": _ms(req.arrival_time, req.finish_time),
         "queue_ms": _ms(req.arrival_time, req.admitted_time),

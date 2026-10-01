@@ -10,20 +10,22 @@ from pathlib import Path
 
 import httpx
 
-from benchmarks.workload import MODEL, SPECS, Workload
+from benchmarks.workload import MODELS, SPECS, Workload
 
 PORTS = {"miniserve": 8000, "mlx-lm": 8081, "vllm-metal": 8080}
 RESULTS = Path(__file__).parent / "results"
 
 
-async def one_request(client, base, target, prompt, max_tokens):
+async def one_request(client, base, target, model, prompt, max_tokens, image=None):
     if target == "miniserve":
         path = "/generate"
         payload = {"prompt": prompt, "max_tokens": max_tokens}
+        if image:
+            payload["media"] = [{"type": "image", "data": image}]
     else:
         path = "/v1/chat/completions"
         payload = {
-            "model": MODEL,
+            "model": MODELS[model],
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
             "max_tokens": max_tokens,
@@ -33,7 +35,7 @@ async def one_request(client, base, target, prompt, max_tokens):
     t_send = time.perf_counter()
     token_times = []
     reported_tokens = None
-    stages = None
+    server = None
 
     async with client.stream("POST", base + path, json=payload) as resp:
         resp.raise_for_status()
@@ -49,7 +51,7 @@ async def one_request(client, base, target, prompt, max_tokens):
                     token_times.append(time.perf_counter())
                 if obj.get("done"):
                     reported_tokens = obj.get("tokens")
-                    stages = {k: obj.get(k) for k in ("queue_ms", "encode_ms", "prefill_ms", "decode_ms")}
+                    server = {k: v for k, v in obj.items() if k != "done"}
             else:
                 choices = obj.get("choices") or []
                 if choices and (choices[0].get("delta") or {}).get("content"):
@@ -62,14 +64,15 @@ async def one_request(client, base, target, prompt, max_tokens):
         "token_times": token_times,
         "done": time.perf_counter(),
         "out_tokens": reported_tokens if reported_tokens is not None else len(token_times),
-        "stages": stages,
+        "server": server,
     }
 
 
-async def run_load(client, base, target, schedule, max_tokens):
+async def run_load(client, base, target, model, schedule, max_tokens):
     tasks = []
     for req in schedule:
-        tasks.append(asyncio.create_task(one_request(client, base, target, req["prompt"], max_tokens)))
+        tasks.append(asyncio.create_task(
+            one_request(client, base, target, model, req["prompt"], max_tokens, req.get("image"))))
         if req["gap"]:
             await asyncio.sleep(req["gap"])
     results = await asyncio.gather(*tasks)
@@ -142,7 +145,7 @@ def request_record(r):
         "prompt_tokens": r["prompt_tokens"],
         "out_tokens": r["out_tokens"],
         "latency_ms": round((r["done"] - r["send"]) * 1000, 1),
-        "stages": r["stages"],
+        "server": r["server"],
         "token_ms": [round((t - r["send"]) * 1000, 1) for t in r["token_times"]],
     }
 
@@ -161,7 +164,7 @@ def _version(pkg):
         return None
 
 
-def environment():
+def environment(model):
     mem = _run("sysctl", "-n", "hw.memsize")
     return {
         "git_sha": _run("git", "rev-parse", "HEAD"),
@@ -171,7 +174,7 @@ def environment():
         "os": platform.platform(),
         "mlx": _version("mlx"),
         "mlx_lm": _version("mlx-lm"),
-        "model": MODEL,
+        "model": MODELS[model],
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
@@ -185,6 +188,7 @@ async def main():
     ap.add_argument("--target", choices=list(PORTS), required=True)
     ap.add_argument("--url", default=None)
     ap.add_argument("--spec", choices=list(SPECS), default="mixed")
+    ap.add_argument("--model", choices=list(MODELS), default="llama")
     ap.add_argument("--qps-list", default="1,2,4,8,16,32")
     ap.add_argument("--num-requests", type=int, default=64)
     ap.add_argument("--max-tokens", type=int, default=128)
@@ -194,14 +198,16 @@ async def main():
     args = ap.parse_args()
 
     base = args.url or f"http://127.0.0.1:{PORTS[args.target]}"
-    workload = Workload(args.spec, args.seed)
-    env = environment()
+    if args.target != "miniserve" and any(b.image for b in SPECS[args.spec]):
+        ap.error(f"spec {args.spec!r} sends images, which only miniserve accepts")
+    workload = Workload(args.spec, args.seed, args.model)
+    env = environment(args.model)
     levels = []
 
     async with httpx.AsyncClient(timeout=None) as client:
         try:
             if args.warmup:
-                await run_load(client, base, args.target, workload.schedule(1000, args.warmup, "warmup"), args.max_tokens)
+                await run_load(client, base, args.target, args.model, workload.schedule(1000, args.warmup, "warmup"), args.max_tokens)
         except httpx.ConnectError:
             print(f"could not reach {args.target} at {base} — is the server running?")
             return
@@ -219,7 +225,7 @@ async def main():
             schedule = workload.schedule(qps, args.num_requests, f"qps{qps:g}")
             stop = asyncio.Event()
             sampler = asyncio.create_task(sample_metrics(client, base, stop)) if has_metrics else None
-            results = await run_load(client, base, args.target, schedule, args.max_tokens)
+            results = await run_load(client, base, args.target, args.model, schedule, args.max_tokens)
             stop.set()
             server = summarize_server(await sampler) if sampler else None
             s = summarize(results)
@@ -243,7 +249,8 @@ async def main():
                 for b in buckets))
 
     sha = (env["git_sha"] or "nogit")[:7] + ("-dirty" if env["git_dirty"] else "")
-    out = Path(args.out) if args.out else RESULTS / args.spec / f"{args.target}-{sha}.json"
+    name = args.target if args.model == "llama" else f"{args.target}-{args.model}"
+    out = Path(args.out) if args.out else RESULTS / args.spec / f"{name}-{sha}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     config = {k: v for k, v in vars(args).items() if k != "out"}
     out.write_text(json.dumps({"env": env, "config": config, "workload": workload.describe(),

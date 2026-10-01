@@ -1,9 +1,12 @@
+import base64
+import io
 import random
 from dataclasses import asdict, dataclass
 
+from PIL import Image, ImageDraw
 from transformers import AutoTokenizer
 
-MODEL = "mlx-community/Llama-3.2-1B-Instruct-4bit"
+MODELS = {"llama": "mlx-community/Llama-3.2-1B-Instruct-4bit", "smolvlm": "HuggingFaceTB/SmolVLM-500M-Instruct"}
 
 QUESTIONS = [
     "Name three primary colors.",
@@ -31,12 +34,19 @@ PASSAGE = [
 
 INSTRUCTION = "\n\nSummarize the text above in a few sentences."
 
+IMAGE_QUESTIONS = [
+    "What shapes are in this image?",
+    "Describe this image.",
+    "What colors do you see in this image?",
+]
+
 
 @dataclass(frozen=True)
 class Bucket:
     name: str
     weight: float
     tokens: tuple[int, int] | None = None
+    image: bool = False
 
 
 SPECS = {
@@ -46,15 +56,34 @@ SPECS = {
         Bucket("medium", 0.25, (200, 450)),
         Bucket("long", 0.15, (700, 1500)),
     ],
+    "image": [
+        Bucket("short", 0.45),
+        Bucket("medium", 0.19, (200, 450)),
+        Bucket("long", 0.11, (700, 1500)),
+        Bucket("image", 0.25, image=True),
+    ],
 }
 
 
+def _image(rng):
+    image = Image.new("RGB", (512, 512), tuple(rng.randrange(256) for _ in range(3)))
+    draw = ImageDraw.Draw(image)
+    for _ in range(3):
+        x, y = rng.randrange(400), rng.randrange(400)
+        box = (x, y, x + rng.randrange(40, 112), y + rng.randrange(40, 112))
+        fill = tuple(rng.randrange(256) for _ in range(3))
+        (draw.ellipse if rng.random() < 0.5 else draw.rectangle)(box, fill=fill)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
 class Workload:
-    def __init__(self, spec, seed=0):
+    def __init__(self, spec, seed=0, model="llama"):
         self.spec = spec
         self.buckets = SPECS[spec]
         self.seed = seed
-        self.tok = AutoTokenizer.from_pretrained(MODEL)
+        self.tok = AutoTokenizer.from_pretrained(MODELS[model])
 
     def _templated_len(self, text):
         return len(self.tok.apply_chat_template(
@@ -73,6 +102,9 @@ class Workload:
             bucket = self.buckets[0]
         else:
             bucket = rng.choices(self.buckets, weights=[b.weight for b in self.buckets])[0]
+        if bucket.image:
+            text = nonce + rng.choice(IMAGE_QUESTIONS)
+            return {"bucket": bucket.name, "prompt": text, "prompt_tokens": self._templated_len(text), "image": _image(rng)}
         if bucket.tokens is None:
             text = nonce + rng.choice(QUESTIONS)
         else:
