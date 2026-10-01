@@ -29,7 +29,7 @@ def server():
             sys.executable,
             "-m",
             "uvicorn",
-            "src.server:app",
+            "src.api.server:app",
             "--host",
             host,
             "--port",

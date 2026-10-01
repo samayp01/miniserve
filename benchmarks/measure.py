@@ -1,9 +1,9 @@
 import time
 import itertools
 import mlx.core as mx
-from src.model_runner import model, tokenizer
-from src.engine import Engine
-from src.request import Request
+from src.engine.model_runner import model, tokenizer
+from src.engine.engine import Engine
+from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools, make_paged_cache
 
 HEADS, DIM = 8, 64  # Llama-3.2-1B kv heads / head dim

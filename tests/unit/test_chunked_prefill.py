@@ -1,5 +1,5 @@
 import mlx.core as mx
-from src.model_runner import model, tokenizer
+from src.engine.model_runner import model, tokenizer
 from src.cache.paged_cache import make_block_pools, make_paged_cache
 
 PROMPT = (

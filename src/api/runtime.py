@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 
 import mlx.core as mx
 
-from src.engine import Engine
-from src.request import Request
+from src.engine.engine import Engine
+from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools
 
 log = logging.getLogger("miniserve")

@@ -1,6 +1,6 @@
 from collections import deque
 from math import ceil
-from src.model_runner import EOS_TOKEN, prefill_chunk, batched_decode
+from src.engine.model_runner import EOS_TOKEN, prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 
 class Engine:

@@ -78,8 +78,8 @@ run_target() {
     stop_server
 }
 
-run_target miniserve  8000 "src.server"    "http://127.0.0.1:8000/openapi.json" \
-    uv run python -m src.server
+run_target miniserve  8000 "src.api.server"    "http://127.0.0.1:8000/openapi.json" \
+    uv run python -m src.api.server
 run_target mlx-lm     8081 "mlx_lm.server" "http://127.0.0.1:8081/v1/models" \
     uv run mlx_lm.server --model "$MODEL" --port 8081
 run_target vllm-metal 8080 "vllm serve"    "http://127.0.0.1:8080/v1/models" \

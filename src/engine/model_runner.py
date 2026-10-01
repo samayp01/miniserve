@@ -1,7 +1,7 @@
 import mlx.core as mx
 from mlx_lm import load
 from src.cache.paged_cache import BatchedPagedCache
-from src.request import Request
+from src.engine.request import Request
 
 MODEL_NAME = "mlx-community/Llama-3.2-1B-Instruct-4bit"
 

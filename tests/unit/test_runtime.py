@@ -2,8 +2,8 @@ import asyncio
 
 import pytest
 
-from src.model_runner import model, tokenizer
-from src.runtime import GenerationError, MiniserveRuntime, StreamDetokenizer
+from src.engine.model_runner import model, tokenizer
+from src.api.runtime import GenerationError, MiniserveRuntime, StreamDetokenizer
 
 PARTY = [9468, 236, 231]
 ROCKET_WAVE = [9468, 248, 222, 9468, 234, 232]

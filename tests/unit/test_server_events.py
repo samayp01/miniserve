@@ -1,9 +1,9 @@
 import asyncio
 import json
 
-from src.model_runner import model, tokenizer
-from src.runtime import MiniserveRuntime
-from src.server import events
+from src.engine.model_runner import model, tokenizer
+from src.api.runtime import MiniserveRuntime
+from src.api.server import events
 
 ESSAY = "Write a detailed multi-paragraph essay about the Roman empire."
 

@@ -4,9 +4,9 @@ import json
 import httpx
 import uvicorn
 
-import src.server as server
-from src.model_runner import model, tokenizer
-from src.runtime import MiniserveRuntime
+import src.api.server as server
+from src.engine.model_runner import model, tokenizer
+from src.api.runtime import MiniserveRuntime
 
 ESSAY = {"prompt": "Write a long essay about the Roman empire.", "max_tokens": 400}
 BLOCKS = 256

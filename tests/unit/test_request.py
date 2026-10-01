@@ -1,4 +1,4 @@
-from src.request import Request
+from src.engine.request import Request
 
 def test_defaults():
     req = Request([1, 2, 3])

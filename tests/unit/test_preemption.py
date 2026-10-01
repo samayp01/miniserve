@@ -2,9 +2,9 @@ import signal
 
 import pytest
 
-from src.model_runner import model, tokenizer
-from src.engine import Engine
-from src.request import Request
+from src.engine.model_runner import model, tokenizer
+from src.engine.engine import Engine
+from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools
 
 PROMPTS = [

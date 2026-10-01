@@ -2,8 +2,8 @@ import mlx.core as mx
 import pytest
 from mlx_lm.models.cache import make_prompt_cache as builtin_cache
 
-from src.model_runner import model, tokenizer, prefill_chunk, batched_decode
-from src.request import Request
+from src.engine.model_runner import model, tokenizer, prefill_chunk, batched_decode
+from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools, make_paged_cache
 
 PROMPTS = [

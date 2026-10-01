@@ -5,8 +5,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from src.model_runner import model, tokenizer
-from src.runtime import GenerationError, MiniserveRuntime
+from src.engine.model_runner import model, tokenizer
+from src.api.runtime import GenerationError, MiniserveRuntime
 
 runtime = MiniserveRuntime(model, tokenizer)
 

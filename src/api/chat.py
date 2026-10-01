@@ -1,8 +1,8 @@
 import asyncio
 import sys
 
-from src.model_runner import model, tokenizer
-from src.runtime import MiniserveRuntime
+from src.engine.model_runner import model, tokenizer
+from src.api.runtime import MiniserveRuntime
 
 
 async def main(prompts):
@@ -17,6 +17,6 @@ async def main(prompts):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python -m src.chat <prompt> [<prompt> ...]")
+        print("Usage: python -m src.api.chat <prompt> [<prompt> ...]")
         sys.exit(1)
     asyncio.run(main(sys.argv[1:]))

@@ -13,7 +13,7 @@ uv sync
 Start the server (port 8000):
 
 ```bash
-uv run python -m src.server
+uv run python -m src.api.server
 ```
 
 Send a streaming request:
@@ -27,7 +27,7 @@ curl -N -X POST http://127.0.0.1:8000/generate \
 Run a prompt from the terminal:
 
 ```bash
-uv run python -m src.chat "Explain water boiling in one paragraph."
+uv run python -m src.api.chat "Explain water boiling in one paragraph."
 ```
 
 ## Test
