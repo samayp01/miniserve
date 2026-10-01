@@ -1,12 +1,12 @@
 import asyncio
 import sys
 
-from src.engine.model_runner import model, tokenizer
 from src.api.runtime import MiniserveRuntime
+from src.models.registry import load_adapter
 
 
 async def main(prompts):
-    runtime = MiniserveRuntime(model, tokenizer)
+    runtime = MiniserveRuntime(load_adapter())
     async with runtime.running():
         for prompt in prompts:
             async for delta in runtime.submit(prompt):
