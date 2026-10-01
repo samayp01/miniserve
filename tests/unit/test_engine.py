@@ -1,11 +1,12 @@
 import signal
 from contextlib import contextmanager
 
+import mlx.core as mx
 import pytest
 
 from src.engine.model_runner import tokenizer
 from src.engine.engine import Engine
-from src.engine.request import Request
+from src.engine.request import Media, Request
 from src.cache.paged_cache import make_block_pools
 from tests.unit.fakes import FakeAdapter
 
@@ -179,3 +180,48 @@ def test_timestamps_follow_the_stages_in_order():
     engine.add_request(req)
     engine.run()
     assert req.arrival_time <= req.admitted_time <= req.first_token_time <= req.finish_time
+
+
+def _media_request(pieces=17, per_piece=2):
+    positions = list(range(5, 5 + pieces * per_piece))
+    media = Media(positions=positions, data=mx.zeros((pieces, 1)))
+    return Request(list(range(5 + pieces * per_piece + 5)), max_output_tokens=4, media=[media])
+
+
+def test_encode_budget_spreads_pieces_across_steps():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    req = _media_request()
+    engine.add_request(req)
+    for _ in range(4):
+        engine.step()
+        assert not req.prefilled
+    engine.step()
+    assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
+    assert req.prefilled
+    assert len(req.media[0].embeds) == len(req.media[0].positions)
+
+
+def test_encode_budget_is_shared_across_requests():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    first, second = _media_request(pieces=3), _media_request(pieces=3)
+    engine.add_request(first)
+    engine.add_request(second)
+    engine.step()
+    assert fake.encode_calls == [(0, 3), (0, 1)]
+    assert first.media[0].ready and second.media[0].encoded == 1
+
+
+def test_preemption_does_not_re_encode():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    req = _media_request()
+    engine.add_request(req)
+    _step_until(engine, lambda: req.prefilled)
+    calls = list(fake.encode_calls)
+    engine._preempt(req)
+    with time_limit(60):
+        engine.run()
+    assert req.done
+    assert fake.encode_calls == calls

@@ -9,6 +9,15 @@ class Media:
     positions: list[int]
     data: mx.array | None = None
     embeds: mx.array | None = None
+    encoded: int = 0
+
+    @property
+    def pieces(self):
+        return 0 if self.data is None else len(self.data)
+
+    @property
+    def ready(self):
+        return self.encoded >= self.pieces
 
 
 class Request:
@@ -25,6 +34,10 @@ class Request:
         self.finish_time = None
         self.prefilled = False
         self.prefill_pos = 0
+
+    @property
+    def media_ready(self):
+        return all(item.ready for item in self.media)
 
     def mark_admitted(self):
         if self.admitted_time is None:

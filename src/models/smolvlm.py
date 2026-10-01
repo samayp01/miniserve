@@ -48,9 +48,10 @@ class SmolVLMAdapter(ModelAdapter):
         positions = [i for i, t in enumerate(ids) if t == self.image_token]
         return ids, [Media(positions=positions, data=inputs["pixel_values"][0])] if images else []
 
-    def encode(self, media):
-        placeholders = mx.array([[self.image_token] * len(media.positions)])
-        return self.model.get_input_embeddings(placeholders, media.data[None]).inputs_embeds[0]
+    def encode(self, media, start, end):
+        per_piece = len(media.positions) // media.pieces
+        placeholders = mx.array([[self.image_token] * ((end - start) * per_piece)])
+        return self.model.get_input_embeddings(placeholders, media.data[start:end][None]).inputs_embeds[0]
 
     def embed_tokens(self, token_ids):
         return self.model.language_model.embed_tokens(mx.array(token_ids))[None]

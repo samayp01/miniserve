@@ -17,8 +17,6 @@ def _circle():
 
 def _image_request(question):
     ids, media = vlm.prepare(question, [{"type": "image", "data": _circle()}])
-    for item in media:
-        item.embeds = vlm.encode(item)
     return Request(ids, max_output_tokens=30, media=media)
 
 
@@ -39,7 +37,7 @@ def test_prepare_reserves_one_position_per_image_vector():
 
 def test_encode_returns_one_vector_per_position():
     _, [image] = vlm.prepare("Describe it.", [{"type": "image", "data": _circle()}])
-    assert vlm.encode(image).shape == (len(image.positions), vlm.model.config.text_config.hidden_size)
+    assert vlm.encode(image, 0, image.pieces).shape == (len(image.positions), vlm.model.config.text_config.hidden_size)
 
 
 def test_answers_about_the_image_through_the_engine():

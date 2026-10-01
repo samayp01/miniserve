@@ -1,11 +1,15 @@
 from collections import deque
 from math import ceil
+
+import mlx.core as mx
+
 from src.engine.model_runner import llama, prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 
 class Engine:
-    def __init__(self, pools, max_batch=32, static=False, chunk_size=512, adapter=llama):
+    def __init__(self, pools, max_batch=32, static=False, chunk_size=512, adapter=llama, encode_budget=4):
         self.adapter = adapter
+        self.encode_budget = encode_budget
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
@@ -67,6 +71,21 @@ class Engine:
         else:
             req.yield_token(token)
 
+    def _encode(self):
+        budget = self.encode_budget
+        for req in self.running:
+            for item in req.media:
+                if budget == 0:
+                    return
+                if item.ready:
+                    continue
+                end = min(item.pieces, item.encoded + budget)
+                vectors = self.adapter.encode(item, item.encoded, end)
+                mx.eval(vectors)
+                item.embeds = vectors if item.embeds is None else mx.concatenate([item.embeds, vectors])
+                budget -= end - item.encoded
+                item.encoded = end
+
     def step(self):
         if not (self.static and self.running):
             free = self._free_blocks()
@@ -77,7 +96,8 @@ class Engine:
                 self.running.append(req)
                 free -= self._blocks_for(req)
 
-        prefilling = [r for r in self.running if not r.prefilled]
+        self._encode()
+        prefilling = [r for r in self.running if not r.prefilled and r.media_ready]
         decoding = [r for r in self.running if r.prefilled and not r.done]
 
         budget = self.chunk_size

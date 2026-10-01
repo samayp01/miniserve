@@ -23,5 +23,5 @@ class ModelAdapter(ABC):
     def decode(self, token_ids: list[list[int]], cache) -> mx.array:
         pass
 
-    def encode(self, media: Media) -> mx.array:
+    def encode(self, media: Media, start: int, end: int) -> mx.array:
         raise NotImplementedError(f"{type(self).__name__} can't take media")

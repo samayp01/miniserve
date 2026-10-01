@@ -17,4 +17,4 @@ def test_llama_prepare_rejects_media():
 
 def test_encode_defaults_to_cannot_take_media():
     with pytest.raises(NotImplementedError, match="can't take media"):
-        llama.encode(Media(positions=[0]))
+        llama.encode(Media(positions=[0]), 0, 1)
