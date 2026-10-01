@@ -9,6 +9,9 @@ class FakeAdapter(ModelAdapter):
     def __init__(self, num_layers=2):
         self.layers = [None] * num_layers
 
+    def prepare(self, prompt, media=()):
+        return list(range(1, len(prompt) + 1)), []
+
     def embed_tokens(self, token_ids):
         return mx.zeros((1, len(token_ids), 1))
 

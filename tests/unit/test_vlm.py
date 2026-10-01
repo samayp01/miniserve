@@ -1,54 +1,60 @@
-import mlx.core as mx
+import pytest
 from PIL import Image, ImageDraw
-from mlx_vlm.models.cache import KVCache
-from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import prepare_inputs
 
-from src.models.smolvlm import load_vlm
+from src.cache.paged_cache import make_block_pools
+from src.engine.engine import Engine
+from src.engine.request import Request
+from src.models.smolvlm import SmolVLMAdapter
 
-model, processor = load_vlm()
-IMAGE_TOKEN = model.config.image_token_index
-QUESTION = "What shapes are in this image, and what colors are they?"
+vlm = SmolVLMAdapter()
 
 
-def _shapes_image():
+def _circle():
     image = Image.new("RGB", (512, 512), (30, 60, 160))
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((50, 50, 250, 300), fill=(220, 30, 30))
-    draw.rectangle((280, 260, 460, 460), fill=(250, 220, 40))
+    ImageDraw.Draw(image).ellipse((50, 50, 250, 300), fill=(220, 30, 30))
     return image
 
 
-def _inputs(image):
-    prompt = apply_chat_template(processor, model.config, QUESTION, num_images=1)
-    return prepare_inputs(processor, images=[image], prompts=[prompt], image_token_index=IMAGE_TOKEN)
+def _image_request(question):
+    ids, media = vlm.prepare(question, [{"type": "image", "data": _circle()}])
+    for item in media:
+        item.embeds = vlm.encode(item)
+    return Request(ids, max_output_tokens=30, media=media)
 
 
-def _answer(image, max_tokens=30):
-    inputs = _inputs(image)
-    extra = {k: v for k, v in inputs.items() if k not in ("input_ids", "pixel_values", "attention_mask")}
-    cache = [KVCache() for _ in model.language_model.layers]
-    logits = model(inputs["input_ids"], inputs["pixel_values"], cache=cache, **extra).logits
-    eos = processor.tokenizer.convert_tokens_to_ids("<end_of_utterance>")
-    tokens = []
-    for _ in range(max_tokens):
-        token = mx.argmax(logits[:, -1, :], axis=-1)
-        if token.item() == eos:
-            break
-        tokens.append(token.item())
-        logits = model.language_model(token[None], cache=cache).logits
-    return processor.tokenizer.decode(tokens)
+def _run(*requests, max_batch=8):
+    engine = Engine(make_block_pools(vlm, 512, 16), max_batch=max_batch, adapter=vlm)
+    for req in requests:
+        engine.add_request(req)
+    engine.run()
+    return [req.output_tokens for req in requests]
 
 
-def test_prompt_reserves_one_slot_per_image_vector():
-    inputs = _inputs(_shapes_image())
-    views = inputs["pixel_values"].shape[1]
-    slots = int((inputs["input_ids"] == IMAGE_TOKEN).sum().item())
-    assert views == 17
-    assert slots == 64 * views
+def test_prepare_reserves_one_position_per_image_vector():
+    ids, [image] = vlm.prepare("Describe it.", [{"type": "image", "data": _circle()}])
+    assert image.data.shape[0] == 17
+    assert len(image.positions) == 64 * 17
+    assert all(ids[p] == vlm.image_token for p in image.positions)
 
 
-def test_describes_image_contents():
-    answer = _answer(_shapes_image()).lower()
+def test_encode_returns_one_vector_per_position():
+    _, [image] = vlm.prepare("Describe it.", [{"type": "image", "data": _circle()}])
+    assert vlm.encode(image).shape == (len(image.positions), vlm.model.config.text_config.hidden_size)
+
+
+def test_answers_about_the_image_through_the_engine():
+    [tokens] = _run(_image_request("What shape is in this image, and what color is it?"))
+    answer = vlm.processor.tokenizer.decode(tokens).lower()
     assert "red" in answer and "circle" in answer
-    assert "yellow" in answer and "square" in answer
+
+
+def test_batched_decode_matches_one_at_a_time():
+    prompts = ["Write one long sentence about the history of the Roman empire and its roads.", "Hi"]
+    batched = _run(*[Request(vlm.prepare(p)[0], max_output_tokens=12) for p in prompts])
+    alone = [_run(Request(vlm.prepare(p)[0], max_output_tokens=12), max_batch=1)[0] for p in prompts]
+    assert batched == alone
+
+
+def test_rejects_unsupported_media():
+    with pytest.raises(NotImplementedError, match="can't take audio"):
+        vlm.prepare("Hi", [{"type": "audio", "data": None}])

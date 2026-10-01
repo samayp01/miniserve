@@ -15,6 +15,12 @@ class LlamaAdapter(ModelAdapter):
     def layers(self):
         return self.model.layers
 
+    def prepare(self, prompt, media=()):
+        if media:
+            raise NotImplementedError(f"{type(self).__name__} can't take media")
+        ids = self.tokenizer.apply_chat_template([{"role": "user", "content": prompt}], add_generation_prompt=True)
+        return ids, []
+
     def embed_tokens(self, token_ids):
         return self.model.model.embed_tokens(mx.array(token_ids))[None]
 

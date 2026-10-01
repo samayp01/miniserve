@@ -7,7 +7,8 @@ import mlx.core as mx
 @dataclass
 class Media:
     positions: list[int]
-    embeds: mx.array
+    data: mx.array | None = None
+    embeds: mx.array | None = None
 
 
 class Request:
