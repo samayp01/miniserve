@@ -2,7 +2,7 @@ import signal
 
 import pytest
 
-from src.engine.model_runner import llama, tokenizer
+from tests.llama import llama, tokenizer
 from src.engine.engine import Engine
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools

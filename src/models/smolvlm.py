@@ -28,6 +28,7 @@ def load_vlm(name=VLM_NAME):
 class SmolVLMAdapter(ModelAdapter):
     def __init__(self, name=VLM_NAME):
         self.model, self.processor = load_vlm(name)
+        self.tokenizer = self.processor.tokenizer
         self.image_token = self.model.config.image_token_index
         self.eos_token = self.processor.tokenizer.convert_tokens_to_ids("<end_of_utterance>")
 

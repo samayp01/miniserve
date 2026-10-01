@@ -2,7 +2,8 @@ import mlx.core as mx
 import pytest
 from mlx_lm.models.cache import make_prompt_cache as builtin_cache
 
-from src.engine.model_runner import model, tokenizer, prefill_chunk, batched_decode
+from src.engine.model_runner import prefill_chunk, batched_decode
+from tests.llama import llama, model, tokenizer
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools, make_paged_cache
 
@@ -32,11 +33,11 @@ def _batched(prompts, steps):
     for prompt in prompts:
         req = Request(tokenizer.encode(prompt), max_output_tokens=steps)
         req.cache = make_paged_cache(pools)
-        token, _ = prefill_chunk(req, 1 << 20)
+        token, _ = prefill_chunk(req, 1 << 20, llama)
         req.yield_token(token)
         reqs.append(req)
     for _ in range(steps - 1):
-        for req, token in zip(reqs, batched_decode(reqs)):
+        for req, token in zip(reqs, batched_decode(reqs, llama)):
             req.yield_token(token)
     return reqs
 

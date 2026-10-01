@@ -1,10 +1,13 @@
 import time
 import itertools
 import mlx.core as mx
-from src.engine.model_runner import model, tokenizer
+from src.models.llama import LlamaAdapter
 from src.engine.engine import Engine
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools, make_paged_cache
+
+llama = LlamaAdapter()
+model, tokenizer = llama.model, llama.tokenizer
 
 HEADS, DIM = 8, 64  # Llama-3.2-1B kv heads / head dim
 
@@ -41,7 +44,7 @@ def _bench(mode, max_batch=4):
     SHORT = ("Say hi in one word.", 8)
     LONG = ("Write a detailed multi-paragraph essay about the Roman empire.", 96)
     pools = make_block_pools(model, num_blocks=4096, block_size=16)
-    engine = Engine(pools, max_batch=max_batch, static=(mode == "static"))
+    engine = Engine(pools, llama, max_batch=max_batch, static=(mode == "static"))
     reqs = [Request(_toks((LONG if i % 4 == 0 else SHORT)[0]),
                     max_output_tokens=(LONG if i % 4 == 0 else SHORT)[1]) for i in range(16)]
     for r in reqs:
@@ -68,7 +71,7 @@ def _load_point(n_req, num_blocks=24, block_size=16, max_batch=8):
     SHORT = ("Say hi in one word.", 8)
     LONG = ("Write a detailed multi-paragraph essay about the Roman empire.", 48)
     pools = make_block_pools(model, num_blocks, block_size)
-    engine = Engine(pools, max_batch=max_batch)
+    engine = Engine(pools, llama, max_batch=max_batch)
     reqs = [Request(_toks((LONG if i % 3 == 0 else SHORT)[0]),
                     max_output_tokens=(LONG if i % 3 == 0 else SHORT)[1]) for i in range(n_req)]
     for r in reqs:

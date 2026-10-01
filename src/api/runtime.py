@@ -104,17 +104,16 @@ class Stream:
 
 
 class MiniserveRuntime:
-    def __init__(self, model, tokenizer, num_blocks=4096, block_size=16, **engine_kwargs):
-        self.tokenizer = tokenizer
-        self.engine = Engine(make_block_pools(model, num_blocks, block_size), **engine_kwargs)
+    def __init__(self, adapter, num_blocks=4096, block_size=16, **engine_kwargs):
+        self.adapter = adapter
+        self.engine = Engine(make_block_pools(adapter, num_blocks, block_size), adapter, **engine_kwargs)
         self.streams = []
 
-    def submit(self, prompt, max_tokens=128):
-        ids = self.tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}], add_generation_prompt=True)
-        req = Request(ids, max_output_tokens=max_tokens)
+    def submit(self, prompt, max_tokens=128, media=()):
+        ids, items = self.adapter.prepare(prompt, media)
+        req = Request(ids, max_output_tokens=max_tokens, media=items)
         self.engine.add_request(req)
-        stream = Stream(req, self.tokenizer, self.cancel)
+        stream = Stream(req, self.adapter.tokenizer, self.cancel)
         self.streams.append(stream)
         return stream
 

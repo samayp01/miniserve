@@ -1,6 +1,6 @@
 import pytest
 
-from src.engine.model_runner import llama, tokenizer
+from tests.llama import llama, tokenizer
 from src.engine.request import Media
 
 

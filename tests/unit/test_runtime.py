@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from src.engine.model_runner import model, tokenizer
+from tests.llama import llama, tokenizer
 from src.engine.request import Request
 from src.api.runtime import GenerationError, MiniserveRuntime, StreamDetokenizer, _stats
 
@@ -35,11 +35,11 @@ def test_detokenizer_concatenation_matches_full_decode():
 
 
 def _runtime(**kwargs):
-    return MiniserveRuntime(model, tokenizer, num_blocks=64, **kwargs)
+    return MiniserveRuntime(llama, num_blocks=64, **kwargs)
 
 
 def test_submit_rejects_oversized_request():
-    runtime = MiniserveRuntime(model, tokenizer, num_blocks=4, block_size=16)
+    runtime = MiniserveRuntime(llama, num_blocks=4, block_size=16)
     with pytest.raises(ValueError):
         runtime.submit("What is the capital of France?", max_tokens=128)
     assert runtime.streams == []

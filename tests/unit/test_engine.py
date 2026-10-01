@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import mlx.core as mx
 import pytest
 
-from src.engine.model_runner import tokenizer
+from tests.llama import tokenizer
 from src.engine.engine import Engine
 from src.engine.request import Media, Request
 from src.cache.paged_cache import make_block_pools

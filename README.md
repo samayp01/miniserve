@@ -16,12 +16,26 @@ Start the server (port 8000):
 uv run python -m src.api.server
 ```
 
+Serve SmolVLM-500M instead of Llama-3.2-1B to accept images:
+
+```bash
+MINISERVE_MODEL=smolvlm uv run python -m src.api.server
+```
+
 Send a streaming request:
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/generate \
   -H 'Content-Type: application/json' \
   -d '{"prompt":"Write a haiku about the ocean.","max_tokens":40}'
+```
+
+Send an image (SmolVLM only) as base64 in `media`:
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d "{\"prompt\":\"What is in this image?\",\"max_tokens\":40,\"media\":[{\"type\":\"image\",\"data\":\"$(base64 -i photo.png)\"}]}"
 ```
 
 Run a prompt from the terminal:

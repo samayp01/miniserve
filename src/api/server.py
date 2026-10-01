@@ -1,18 +1,24 @@
+import base64
+import io
 import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
-from src.engine.model_runner import model, tokenizer
 from src.api.runtime import GenerationError, MiniserveRuntime
+from src.models.registry import load_adapter
 
-runtime = MiniserveRuntime(model, tokenizer)
+runtime = None
 
 
 @asynccontextmanager
 async def lifespan(app):
+    global runtime
+    if runtime is None:
+        runtime = MiniserveRuntime(load_adapter())
     async with runtime.running():
         yield
 
@@ -20,9 +26,20 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 
+class MediaItem(BaseModel):
+    type: str
+    data: str
+
+
 class Prompt(BaseModel):
     prompt: str
     max_tokens: int = Field(128, gt=0)
+    media: list[MediaItem] = []
+
+
+def decode_media(item):
+    raw = base64.b64decode(item.data)
+    return {"type": item.type, "data": Image.open(io.BytesIO(raw)).convert("RGB") if item.type == "image" else raw}
 
 
 def _sse(payload):
@@ -45,8 +62,8 @@ async def events(stream, is_disconnected):
 @app.post("/generate")
 async def generate(body: Prompt, request: Request):
     try:
-        stream = runtime.submit(body.prompt, body.max_tokens)
-    except ValueError as e:
+        stream = runtime.submit(body.prompt, body.max_tokens, [decode_media(m) for m in body.media])
+    except (ValueError, NotImplementedError, UnidentifiedImageError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")
 

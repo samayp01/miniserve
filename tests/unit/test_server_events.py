@@ -1,15 +1,19 @@
 import asyncio
+import base64
+import io
 import json
 
-from src.engine.model_runner import model, tokenizer
+from PIL import Image
+
 from src.api.runtime import MiniserveRuntime
-from src.api.server import events
+from src.api.server import MediaItem, decode_media, events
+from tests.llama import llama
 
 ESSAY = "Write a detailed multi-paragraph essay about the Roman empire."
 
 
 def _runtime():
-    return MiniserveRuntime(model, tokenizer, num_blocks=64)
+    return MiniserveRuntime(llama, num_blocks=64)
 
 
 async def _connected():
@@ -88,3 +92,11 @@ def test_stops_and_cancels_the_request_once_the_client_disconnects():
     assert runtime.streams == []
     assert not runtime.engine.running and not runtime.engine.waiting
     assert all(sorted(pool.allocator.free) == list(range(64)) for pool in runtime.engine.pools)
+
+
+def test_decode_media_turns_base64_png_into_an_image():
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 4), (255, 0, 0)).save(buffer, format="PNG")
+    item = decode_media(MediaItem(type="image", data=base64.b64encode(buffer.getvalue()).decode()))
+    assert item["type"] == "image"
+    assert item["data"].size == (8, 4)

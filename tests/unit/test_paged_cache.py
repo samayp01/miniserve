@@ -1,7 +1,7 @@
 import mlx.core as mx
 import pytest
 from mlx_lm.models.cache import make_prompt_cache as builtin_cache
-from src.engine.model_runner import model, tokenizer
+from tests.llama import model, tokenizer
 from src.cache.paged_cache import (
     BatchedPagedCache,
     PagedKVCache,

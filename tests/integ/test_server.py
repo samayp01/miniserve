@@ -1,7 +1,10 @@
+import base64
+import io
 import json
 
 import httpx
 import pytest
+from PIL import Image
 
 
 def test_generate(server):
@@ -59,3 +62,13 @@ def test_generate_rejects_non_positive_max_tokens(server, max_tokens):
         )
 
     assert response.status_code == 422
+
+
+def test_generate_rejects_media_the_model_cannot_take(server):
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(buffer, format="PNG")
+    image = base64.b64encode(buffer.getvalue()).decode()
+    with httpx.Client(timeout=60) as client:
+        response = client.post(f"{server}/generate", json={"prompt": "Hi", "media": [{"type": "image", "data": image}]})
+    assert response.status_code == 400
+    assert "can't take media" in response.json()["detail"]

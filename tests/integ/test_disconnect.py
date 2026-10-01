@@ -5,7 +5,7 @@ import httpx
 import uvicorn
 
 import src.api.server as server
-from src.engine.model_runner import model, tokenizer
+from tests.llama import llama
 from src.api.runtime import MiniserveRuntime
 
 ESSAY = {"prompt": "Write a long essay about the Roman empire.", "max_tokens": 400}
@@ -49,7 +49,7 @@ def _all_blocks_free(runtime):
 
 
 def test_disconnect_mid_stream_aborts_the_request(monkeypatch):
-    runtime = MiniserveRuntime(model, tokenizer, num_blocks=BLOCKS)
+    runtime = MiniserveRuntime(llama, num_blocks=BLOCKS)
 
     async def scenario(url):
         async with httpx.AsyncClient(timeout=30) as client:
@@ -70,7 +70,7 @@ def test_disconnect_mid_stream_aborts_the_request(monkeypatch):
 
 
 def test_disconnect_while_queued_removes_the_request_without_running_it(monkeypatch):
-    runtime = MiniserveRuntime(model, tokenizer, num_blocks=BLOCKS, max_batch=1)
+    runtime = MiniserveRuntime(llama, num_blocks=BLOCKS, max_batch=1)
 
     async def scenario(url):
         async with httpx.AsyncClient(timeout=30) as keeper, httpx.AsyncClient(timeout=30) as leaver:

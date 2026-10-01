@@ -1,6 +1,9 @@
+import asyncio
+
 import pytest
 from PIL import Image, ImageDraw
 
+from src.api.runtime import MiniserveRuntime
 from src.cache.paged_cache import make_block_pools
 from src.engine.engine import Engine
 from src.engine.request import Request
@@ -56,3 +59,14 @@ def test_batched_decode_matches_one_at_a_time():
 def test_rejects_unsupported_media():
     with pytest.raises(NotImplementedError, match="can't take audio"):
         vlm.prepare("Hi", [{"type": "audio", "data": None}])
+
+
+def test_runtime_streams_an_answer_about_an_image():
+    async def go():
+        runtime = MiniserveRuntime(vlm, num_blocks=256)
+        async with runtime.running():
+            stream = runtime.submit("What shape is in this image, and what color is it?", 30, [{"type": "image", "data": _circle()}])
+            return "".join([delta async for delta in stream]).lower()
+
+    answer = asyncio.run(go())
+    assert "red" in answer and "circle" in answer

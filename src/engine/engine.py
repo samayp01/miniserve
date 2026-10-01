@@ -3,11 +3,11 @@ from math import ceil
 
 import mlx.core as mx
 
-from src.engine.model_runner import llama, prefill_chunk, batched_decode
+from src.engine.model_runner import prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 
 class Engine:
-    def __init__(self, pools, max_batch=32, static=False, chunk_size=512, adapter=llama, encode_budget=4):
+    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4):
         self.adapter = adapter
         self.encode_budget = encode_budget
         self.waiting = deque()
