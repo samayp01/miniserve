@@ -2,7 +2,7 @@ import json
 
 import mlx.core as mx
 from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import get_model_path, load_model, prepare_inputs
+from mlx_vlm.utils import get_model_path, load_model
 from transformers import AutoTokenizer
 from transformers.models.idefics3 import Idefics3Processor
 from transformers.models.idefics3.image_processing_pil_idefics3 import Idefics3ImageProcessorPil
@@ -44,7 +44,7 @@ class SmolVLMAdapter(ModelAdapter):
             raise NotImplementedError(f"{type(self).__name__} takes one image per request")
         images = [item["data"] for item in media]
         text = apply_chat_template(self.processor, self.model.config, prompt, num_images=len(images))
-        inputs = prepare_inputs(self.processor, images=images or None, prompts=[text], image_token_index=self.image_token)
+        inputs = self.processor(text=[text], images=[images] if images else None, return_tensors="np", add_special_tokens=False)
         ids = inputs["input_ids"][0].tolist()
         positions = [i for i, t in enumerate(ids) if t == self.image_token]
         return ids, [Media(positions=positions, data=inputs["pixel_values"][0])] if images else []
@@ -52,7 +52,7 @@ class SmolVLMAdapter(ModelAdapter):
     def encode(self, media, start, end):
         per_piece = len(media.positions) // media.pieces
         placeholders = mx.array([[self.image_token] * ((end - start) * per_piece)])
-        return self.model.get_input_embeddings(placeholders, media.data[start:end][None]).inputs_embeds[0]
+        return self.model.get_input_embeddings(placeholders, mx.array(media.data[start:end])[None]).inputs_embeds[0]
 
     def embed_tokens(self, token_ids):
         return self.model.language_model.embed_tokens(mx.array(token_ids))[None]

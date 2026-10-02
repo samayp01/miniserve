@@ -1,5 +1,6 @@
 import asyncio
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
@@ -33,6 +34,7 @@ def _run(*requests, max_batch=8):
 
 def test_prepare_reserves_one_position_per_image_vector():
     ids, [image] = vlm.prepare("Describe it.", [{"type": "image", "data": _circle()}])
+    assert isinstance(image.data, np.ndarray)
     assert image.data.shape[0] == 17
     assert len(image.positions) == 64 * 17
     assert all(ids[p] == vlm.image_token for p in image.positions)

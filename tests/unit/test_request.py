@@ -61,3 +61,12 @@ def test_embed_handles_several_media_items():
 
 def test_text_request_has_no_media():
     assert Request([1, 2, 3]).media == []
+
+def test_arrival_time_can_be_set_before_preparation():
+    req = Request([1], arrival_time=5.0)
+    assert req.arrival_time == 5.0
+    assert req.prepared_time > req.arrival_time
+
+def test_arrival_defaults_to_preparation_time():
+    req = Request([1])
+    assert req.arrival_time == req.prepared_time

@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import io
 import json
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -59,10 +61,16 @@ async def events(stream, is_disconnected):
         stream.cancel()
 
 
+def _prepare(body):
+    return runtime.adapter.prepare(body.prompt, [decode_media(m) for m in body.media])
+
+
 @app.post("/generate")
 async def generate(body: Prompt, request: Request):
+    arrival = time.time()
     try:
-        stream = runtime.submit(body.prompt, body.max_tokens, [decode_media(m) for m in body.media])
+        ids, items = await asyncio.to_thread(_prepare, body)
+        stream = runtime.enqueue(ids, items, body.max_tokens, arrival)
     except (ValueError, NotImplementedError, UnidentifiedImageError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")

@@ -2,12 +2,13 @@ import time
 from dataclasses import dataclass
 
 import mlx.core as mx
+import numpy as np
 
 
 @dataclass
 class Media:
     positions: list[int]
-    data: mx.array | None = None
+    data: np.ndarray | mx.array | None = None
     embeds: mx.array | None = None
     encoded: int = 0
 
@@ -21,14 +22,15 @@ class Media:
 
 
 class Request:
-    def __init__(self, prompt_tokens, max_output_tokens=128, media=()):
+    def __init__(self, prompt_tokens, max_output_tokens=128, media=(), arrival_time=None):
         self.prompt_tokens = prompt_tokens
         self.media = list(media)
         self.cache = None
         self.output_tokens = []
         self.done = False
         self.max_output_tokens = max_output_tokens
-        self.arrival_time = time.time()
+        self.prepared_time = time.time()
+        self.arrival_time = arrival_time or self.prepared_time
         self.admitted_time = None
         self.encoded_time = None
         self.first_token_time = None

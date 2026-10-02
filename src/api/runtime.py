@@ -53,7 +53,8 @@ def _stats(req):
         "prompt_tokens": len(req.prompt_tokens),
         "ttft_ms": _ms(req.arrival_time, req.first_token_time),
         "latency_ms": _ms(req.arrival_time, req.finish_time),
-        "queue_ms": _ms(req.arrival_time, req.admitted_time),
+        "prepare_ms": _ms(req.arrival_time, req.prepared_time),
+        "queue_ms": _ms(req.prepared_time, req.admitted_time),
         "encode_ms": _ms(req.admitted_time, req.encoded_time),
         "prefill_ms": _ms(req.encoded_time, req.first_token_time),
         "decode_ms": _ms(req.first_token_time, req.finish_time),
@@ -111,8 +112,10 @@ class MiniserveRuntime:
         self.streams = []
 
     def submit(self, prompt, max_tokens=128, media=()):
-        ids, items = self.adapter.prepare(prompt, media)
-        req = Request(ids, max_output_tokens=max_tokens, media=items)
+        return self.enqueue(*self.adapter.prepare(prompt, media), max_tokens)
+
+    def enqueue(self, ids, items, max_tokens=128, arrival_time=None):
+        req = Request(ids, max_output_tokens=max_tokens, media=items, arrival_time=arrival_time)
         self.engine.add_request(req)
         stream = Stream(req, self.adapter.tokenizer, self.cancel)
         self.streams.append(stream)
