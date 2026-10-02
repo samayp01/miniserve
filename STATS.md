@@ -3,6 +3,20 @@
 - mlx-lm version: 0.31.3
 
 
+### v0.3.0 Image Requests on SmolVLM-500M
+
+```
+                              mixed   mixed + 25% images
+  itl_p99 @ 1 qps              17ms        124ms
+  tpot_p50 @ 4 qps             39ms        127ms
+  short-prompt ttft @ 4 qps   184ms       1200ms
+
+  one image request @ 1 qps: ttft 713ms = ~190ms decode + prepare, 383ms encode, 129ms prefill
+```
+
+Each 512px image is 1088 tokens over 17 views, encoded 4 views per step; that encoding, plus ~190ms of decoding and tiling in the request handler that blocks the engine loop, raises everyone's p99 inter-token latency 7x even at 1 QPS. Under load the encoder becomes the bottleneck (image requests wait ~5s to be encoded at 16+ QPS while holding batch slots), and tok/s is left out because image answers average only 6 tokens.
+
+
 ### v0.2.1 Short vs Mixed-Length Prompts
 
 ```
