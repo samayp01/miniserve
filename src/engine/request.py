@@ -1,5 +1,5 @@
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import mlx.core as mx
 import numpy as np
@@ -11,10 +11,10 @@ class Media:
     data: np.ndarray | mx.array | None = None
     embeds: mx.array | None = None
     encoded: int = 0
+    pieces: int = field(init=False)
 
-    @property
-    def pieces(self):
-        return 0 if self.data is None else len(self.data)
+    def __post_init__(self):
+        self.pieces = 0 if self.data is None else len(self.data)
 
     @property
     def ready(self):

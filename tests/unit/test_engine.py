@@ -200,6 +200,7 @@ def test_encode_budget_spreads_pieces_across_steps():
     assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
     assert req.prefilled
     assert len(req.media[0].embeds) == len(req.media[0].positions)
+    assert req.media[0].data is None
 
 
 def test_encode_budget_is_shared_across_requests():

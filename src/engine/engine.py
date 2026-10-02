@@ -85,6 +85,8 @@ class Engine:
                 item.embeds = vectors if item.embeds is None else mx.concatenate([item.embeds, vectors])
                 budget -= end - item.encoded
                 item.encoded = end
+                if item.ready:
+                    item.data = None
 
     def step(self):
         if not (self.static and self.running):
