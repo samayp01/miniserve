@@ -51,6 +51,7 @@ def _stats(req):
     return {
         "tokens": len(req.output_tokens),
         "prompt_tokens": len(req.prompt_tokens),
+        "media_hits": sum(item.hit for item in req.media),
         "ttft_ms": _ms(req.arrival_time, req.first_token_time),
         "latency_ms": _ms(req.arrival_time, req.finish_time),
         "prepare_ms": _ms(req.arrival_time, req.prepared_time),
@@ -130,6 +131,8 @@ class MiniserveRuntime:
             "total_blocks": self.engine.capacity,
             "active_mb": round(mx.get_active_memory() / 2**20, 1),
             "peak_mb": round(mx.get_peak_memory() / 2**20, 1),
+            "encode_cache_entries": len(self.engine.encode_cache.entries),
+            "encode_cache_mb": round(self.engine.encode_cache.bytes / 2**20, 1),
         }
 
     def cancel(self, stream):

@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import mlx.core as mx
@@ -47,7 +48,11 @@ class SmolVLMAdapter(ModelAdapter):
         inputs = self.processor(text=[text], images=[images] if images else None, return_tensors="np", add_special_tokens=False)
         ids = inputs["input_ids"][0].tolist()
         positions = [i for i, t in enumerate(ids) if t == self.image_token]
-        return ids, [Media(positions=positions, data=inputs["pixel_values"][0])] if images else []
+        if not images:
+            return ids, []
+        image = images[0]
+        key = hashlib.blake2b(f"{image.mode}{image.size}".encode() + image.tobytes()).hexdigest()
+        return ids, [Media(positions=positions, data=inputs["pixel_values"][0], key=key)]
 
     def encode(self, media, start, end):
         per_piece = len(media.positions) // media.pieces

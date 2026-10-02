@@ -5,11 +5,13 @@ import mlx.core as mx
 
 from src.engine.model_runner import prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
+from src.engine.encode_cache import EncodeCache
 
 class Engine:
-    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4):
+    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4, encode_cache_mb=1024):
         self.adapter = adapter
         self.encode_budget = encode_budget
+        self.encode_cache = EncodeCache(encode_cache_mb * 2**20)
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
@@ -71,6 +73,14 @@ class Engine:
         else:
             req.yield_token(token)
 
+    def _lookup(self, req):
+        for item in req.media:
+            if item.key is None or item.ready or item.encoded:
+                continue
+            cached = self.encode_cache.get(item.key)
+            if cached is not None:
+                item.embeds, item.encoded, item.data, item.hit = cached, item.pieces, None, True
+
     def _encode(self):
         budget = self.encode_budget
         for req in self.running:
@@ -87,6 +97,8 @@ class Engine:
                 item.encoded = end
                 if item.ready:
                     item.data = None
+                    if item.key is not None:
+                        self.encode_cache.put(item.key, item.embeds)
 
     def step(self):
         if not (self.static and self.running):
@@ -95,6 +107,7 @@ class Engine:
                 req = self.waiting.popleft()
                 req.cache = make_paged_cache(self.pools)
                 req.mark_admitted()
+                self._lookup(req)
                 self.running.append(req)
                 free -= self._blocks_for(req)
 

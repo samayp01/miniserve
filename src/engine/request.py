@@ -11,6 +11,8 @@ class Media:
     data: np.ndarray | mx.array | None = None
     embeds: mx.array | None = None
     encoded: int = 0
+    key: str | None = None
+    hit: bool = False
     pieces: int = field(init=False)
 
     def __post_init__(self):

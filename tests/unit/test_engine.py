@@ -238,3 +238,21 @@ def test_media_is_marked_encoded_only_after_its_last_piece():
         assert req.encoded_time is None
     engine.step()
     assert req.admitted_time < req.encoded_time
+
+
+def test_repeated_media_key_skips_encoding():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    first = _media_request()
+    first.media[0].key = "a"
+    engine.add_request(first)
+    with time_limit(60):
+        engine.run()
+    calls = list(fake.encode_calls)
+    second = _media_request()
+    second.media[0].key = "a"
+    engine.add_request(second)
+    engine.step()
+    assert not first.media[0].hit
+    assert second.media[0].hit and second.prefilled
+    assert fake.encode_calls == calls

@@ -72,3 +72,17 @@ def test_runtime_streams_an_answer_about_an_image():
 
     answer = asyncio.run(go())
     assert "red" in answer and "circle" in answer
+
+
+def test_same_image_twice_hits_the_encode_cache():
+    engine = Engine(make_block_pools(vlm, 512, 16), vlm)
+    question = "What shape is in this image, and what color is it?"
+    first, second = _image_request(question), _image_request(question)
+    engine.add_request(first)
+    engine.run()
+    engine.add_request(second)
+    engine.run()
+    assert not first.media[0].hit and second.media[0].hit
+    for req in (first, second):
+        answer = vlm.tokenizer.decode(req.output_tokens).lower()
+        assert "red" in answer and "circle" in answer
