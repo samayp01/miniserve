@@ -79,10 +79,12 @@ def _image(rng):
 
 
 class Workload:
-    def __init__(self, spec, seed=0, model="llama"):
+    def __init__(self, spec, seed=0, model="llama", repeat=0.0):
         self.spec = spec
         self.buckets = SPECS[spec]
         self.seed = seed
+        self.repeat = repeat
+        self.seen = []
         self.tok = AutoTokenizer.from_pretrained(MODELS[model])
 
     def _templated_len(self, text):
@@ -104,7 +106,13 @@ class Workload:
             bucket = rng.choices(self.buckets, weights=[b.weight for b in self.buckets])[0]
         if bucket.image:
             text = nonce + rng.choice(IMAGE_QUESTIONS)
-            return {"bucket": bucket.name, "prompt": text, "prompt_tokens": self._templated_len(text), "image": _image(rng)}
+            pick = random.Random(f"{self.seed}{nonce}")
+            if self.repeat and self.seen and pick.random() < self.repeat:
+                image = pick.choice(self.seen)
+            else:
+                image = _image(pick)
+                self.seen.append(image)
+            return {"bucket": bucket.name, "prompt": text, "prompt_tokens": self._templated_len(text), "image": image}
         if bucket.tokens is None:
             text = nonce + rng.choice(QUESTIONS)
         else:
@@ -113,6 +121,7 @@ class Workload:
 
     def schedule(self, qps, num_requests, tag):
         rng = random.Random(self.seed)
+        self.seen = []
         reqs = []
         for i in range(num_requests):
             req = self._prompt(rng, f"[{tag}-{i}] ")

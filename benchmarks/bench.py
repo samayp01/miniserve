@@ -76,7 +76,7 @@ async def run_load(client, base, target, model, schedule, max_tokens):
         if req["gap"]:
             await asyncio.sleep(req["gap"])
     results = await asyncio.gather(*tasks)
-    return [{"bucket": req["bucket"], "prompt_tokens": req["prompt_tokens"], **res}
+    return [{"bucket": req["bucket"], "prompt_tokens": req["prompt_tokens"], "media": int("image" in req), **res}
             for req, res in zip(schedule, results)]
 
 
@@ -115,6 +115,8 @@ def summarize(results):
         bt = [(r["token_times"][0] - r["send"]) * 1000 for r in results if r["bucket"] == name and r["token_times"]]
         by_bucket[name] = {"n": sum(r["bucket"] == name for r in results),
                            "ttft_p50": pct(bt, 50), "ttft_p99": pct(bt, 99)}
+    media = sum(r["media"] for r in results)
+    hits = sum((r["server"] or {}).get("media_hits", 0) for r in results)
     return {
         "throughput": total_out / span if span else float("nan"),
         "ttft_p50": pct(ttfts, 50), "ttft_p99": pct(ttfts, 99),
@@ -122,6 +124,7 @@ def summarize(results):
         "itl_p50": pct(itls, 50), "itl_p99": pct(itls, 99), "itl_max": max(itls, default=float("nan")),
         "lat_p50": pct(lats, 50), "lat_p99": pct(lats, 99),
         "by_bucket": by_bucket,
+        "media_hit_rate": hits / media if media else None,
     }
 
 
@@ -136,6 +139,7 @@ def summarize_server(samples):
         "total_blocks": samples[0]["total_blocks"],
         "max_active_mb": max(s["active_mb"] for s in samples),
         "peak_mb": samples[-1]["peak_mb"],
+        "encode_cache_mb": max(s.get("encode_cache_mb", 0) for s in samples),
     }
 
 
@@ -189,6 +193,7 @@ async def main():
     ap.add_argument("--url", default=None)
     ap.add_argument("--spec", choices=list(SPECS), default="mixed")
     ap.add_argument("--model", choices=list(MODELS), default="llama")
+    ap.add_argument("--repeat", type=float, default=0.0)
     ap.add_argument("--qps-list", default="1,2,4,8,16,32")
     ap.add_argument("--num-requests", type=int, default=64)
     ap.add_argument("--max-tokens", type=int, default=128)
@@ -200,7 +205,7 @@ async def main():
     base = args.url or f"http://127.0.0.1:{PORTS[args.target]}"
     if args.target != "miniserve" and any(b.image for b in SPECS[args.spec]):
         ap.error(f"spec {args.spec!r} sends images, which only miniserve accepts")
-    workload = Workload(args.spec, args.seed, args.model)
+    workload = Workload(args.spec, args.seed, args.model, args.repeat)
     env = environment(args.model)
     levels = []
 
@@ -237,6 +242,8 @@ async def main():
             if server:
                 line += (f"  {server['max_waiting']:>4}  {server['max_running']:>4}  "
                          f"{server['preemptions']:>4}  {server['max_active_mb']:>7.0f}")
+            if s["media_hit_rate"] is not None:
+                line += f"  hit {s['media_hit_rate']:.0%}"
             print(line, flush=True)
 
     buckets = list(levels[0]["summary"]["by_bucket"])
@@ -250,6 +257,8 @@ async def main():
 
     sha = (env["git_sha"] or "nogit")[:7] + ("-dirty" if env["git_dirty"] else "")
     name = args.target if args.model == "llama" else f"{args.target}-{args.model}"
+    if args.repeat:
+        name += f"-r{round(args.repeat * 100)}"
     out = Path(args.out) if args.out else RESULTS / args.spec / f"{name}-{sha}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     config = {k: v for k, v in vars(args).items() if k != "out"}
