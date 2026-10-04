@@ -41,15 +41,15 @@ def test_mark_done():
     assert req.done is True
     assert req.finish_time is not None
 
-def _image_request():
-    image = Media(positions=[3, 4, 5, 6], embeds=mx.array([[10.0], [11.0], [12.0], [13.0]]))
-    return Request(list(range(10)), media=[image])
+def _media_request():
+    item = Media(positions=[3, 4, 5, 6], embeds=mx.array([[10.0], [11.0], [12.0], [13.0]]))
+    return Request(list(range(10)), media=[item])
 
 def test_embed_places_media_rows_at_their_positions():
-    assert embed(_image_request(), 0, 10, FAKE)[0, :, 0].tolist() == [0, 0, 0, 10, 11, 12, 13, 0, 0, 0]
+    assert embed(_media_request(), 0, 10, FAKE)[0, :, 0].tolist() == [0, 0, 0, 10, 11, 12, 13, 0, 0, 0]
 
 def test_embed_splits_media_across_chunks():
-    req = _image_request()
+    req = _media_request()
     assert embed(req, 0, 5, FAKE)[0, :, 0].tolist() == [0, 0, 0, 10, 11]
     assert embed(req, 5, 10, FAKE)[0, :, 0].tolist() == [12, 13, 0, 0, 0]
 

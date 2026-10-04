@@ -1,5 +1,6 @@
 from collections import deque
 from math import ceil
+from weakref import WeakValueDictionary
 
 import mlx.core as mx
 
@@ -13,6 +14,7 @@ class Engine:
         self.encode_budget = encode_budget
         self.encode_cache = EncodeCache(encode_cache_mb * 2**20)
         self.partial = {}
+        self.media_data = WeakValueDictionary()
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
@@ -32,6 +34,9 @@ class Engine:
                 f"request needs up to {needed} blocks ({len(req.prompt_tokens)} prompt "
                 f"+ {req.max_output_tokens} output tokens) but the pool holds {self.capacity}"
             )
+        for item in req.media:
+            if item.key is not None and item.data is not None:
+                item.data = self.media_data.setdefault(item.key, item.data)
         self.waiting.append(req)
 
     def abort(self, req):

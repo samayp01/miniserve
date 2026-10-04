@@ -16,12 +16,12 @@ PORTS = {"miniserve": 8000, "mlx-lm": 8081, "vllm-metal": 8080}
 RESULTS = Path(__file__).parent / "results"
 
 
-async def one_request(client, base, target, model, prompt, max_tokens, image=None):
+async def one_request(client, base, target, model, prompt, max_tokens, media=None):
     if target == "miniserve":
         path = "/generate"
         payload = {"prompt": prompt, "max_tokens": max_tokens}
-        if image:
-            payload["media"] = [{"type": "image", "data": image}]
+        if media:
+            payload["media"] = media
     else:
         path = "/v1/chat/completions"
         payload = {
@@ -72,11 +72,11 @@ async def run_load(client, base, target, model, schedule, max_tokens):
     tasks = []
     for req in schedule:
         tasks.append(asyncio.create_task(
-            one_request(client, base, target, model, req["prompt"], max_tokens, req.get("image"))))
+            one_request(client, base, target, model, req["prompt"], max_tokens, req.get("media"))))
         if req["gap"]:
             await asyncio.sleep(req["gap"])
     results = await asyncio.gather(*tasks)
-    return [{"bucket": req["bucket"], "prompt_tokens": req["prompt_tokens"], "media": int("image" in req), **res}
+    return [{"bucket": req["bucket"], "prompt_tokens": req["prompt_tokens"], "media": len(req.get("media", ())), **res}
             for req, res in zip(schedule, results)]
 
 
@@ -203,8 +203,8 @@ async def main():
     args = ap.parse_args()
 
     base = args.url or f"http://127.0.0.1:{PORTS[args.target]}"
-    if args.target != "miniserve" and any(b.image for b in SPECS[args.spec]):
-        ap.error(f"spec {args.spec!r} sends images, which only miniserve accepts")
+    if args.target != "miniserve" and any(b.media for b in SPECS[args.spec]):
+        ap.error(f"spec {args.spec!r} sends media, which only miniserve accepts")
     workload = Workload(args.spec, args.seed, args.model, args.repeat)
     env = environment(args.model)
     levels = []

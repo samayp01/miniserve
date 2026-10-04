@@ -100,3 +100,17 @@ def test_decode_media_turns_base64_png_into_an_image():
     item = decode_media(MediaItem(type="image", data=base64.b64encode(buffer.getvalue()).decode()))
     assert item["type"] == "image"
     assert item["data"].size == (8, 4)
+
+
+def test_decode_media_rejects_an_invalid_image_as_a_value_error():
+    try:
+        decode_media(MediaItem(type="image", data=base64.b64encode(b"not an image").decode()))
+    except ValueError as e:
+        assert "invalid image" in str(e)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_decode_media_passes_unknown_types_through_as_bytes():
+    item = decode_media(MediaItem(type="audio", data=base64.b64encode(b"wave").decode()))
+    assert item == {"type": "audio", "data": b"wave"}

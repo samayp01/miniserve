@@ -1,7 +1,7 @@
 import signal
 from contextlib import contextmanager
 
-import mlx.core as mx
+import numpy as np
 import pytest
 
 from tests.llama import tokenizer
@@ -184,7 +184,7 @@ def test_timestamps_follow_the_stages_in_order():
 
 def _media_request(pieces=17, per_piece=2):
     positions = list(range(5, 5 + pieces * per_piece))
-    media = Media(positions=positions, data=mx.zeros((pieces, 1)))
+    media = Media(positions=positions, data=np.zeros((pieces, 1)))
     return Request(list(range(5 + pieces * per_piece + 5)), max_output_tokens=4, media=[media])
 
 
@@ -301,3 +301,24 @@ def test_aborting_an_unshared_encode_keeps_no_progress():
     engine.step()
     engine.abort(req)
     assert engine.partial == {}
+
+
+def test_identical_media_share_one_data_array():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake)
+    first, second = _keyed_pair()
+    assert first.media[0].data is not second.media[0].data
+    engine.add_request(first)
+    engine.add_request(second)
+    assert second.media[0].data is first.media[0].data
+
+
+def test_shared_media_data_is_released_once_encoded():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake)
+    first, second = _keyed_pair()
+    engine.add_request(first)
+    engine.add_request(second)
+    with time_limit(60):
+        engine.run()
+    assert len(engine.media_data) == 0

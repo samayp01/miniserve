@@ -34,11 +34,13 @@ PASSAGE = [
 
 INSTRUCTION = "\n\nSummarize the text above in a few sentences."
 
-IMAGE_QUESTIONS = [
-    "What shapes are in this image?",
-    "Describe this image.",
-    "What colors do you see in this image?",
-]
+MEDIA_QUESTIONS = {
+    "image": [
+        "What shapes are in this image?",
+        "Describe this image.",
+        "What colors do you see in this image?",
+    ],
+}
 
 
 @dataclass(frozen=True)
@@ -46,7 +48,7 @@ class Bucket:
     name: str
     weight: float
     tokens: tuple[int, int] | None = None
-    image: bool = False
+    media: str | None = None
 
 
 SPECS = {
@@ -60,7 +62,7 @@ SPECS = {
         Bucket("short", 0.45),
         Bucket("medium", 0.19, (200, 450)),
         Bucket("long", 0.11, (700, 1500)),
-        Bucket("image", 0.25, image=True),
+        Bucket("image", 0.25, media="image"),
     ],
 }
 
@@ -78,13 +80,17 @@ def _image(rng):
     return base64.b64encode(buffer.getvalue()).decode()
 
 
+
+GENERATORS = {"image": _image}
+
+
 class Workload:
     def __init__(self, spec, seed=0, model="llama", repeat=0.0):
         self.spec = spec
         self.buckets = SPECS[spec]
         self.seed = seed
         self.repeat = repeat
-        self.seen = []
+        self.seen = {}
         self.tok = AutoTokenizer.from_pretrained(MODELS[model])
 
     def _templated_len(self, text):
@@ -104,15 +110,17 @@ class Workload:
             bucket = self.buckets[0]
         else:
             bucket = rng.choices(self.buckets, weights=[b.weight for b in self.buckets])[0]
-        if bucket.image:
-            text = nonce + rng.choice(IMAGE_QUESTIONS)
+        if bucket.media:
+            text = nonce + rng.choice(MEDIA_QUESTIONS[bucket.media])
+            seen = self.seen.setdefault(bucket.media, [])
             pick = random.Random(f"{self.seed}{nonce}")
-            if self.repeat and self.seen and pick.random() < self.repeat:
-                image = pick.choice(self.seen)
+            if self.repeat and seen and pick.random() < self.repeat:
+                data = pick.choice(seen)
             else:
-                image = _image(pick)
-                self.seen.append(image)
-            return {"bucket": bucket.name, "prompt": text, "prompt_tokens": self._templated_len(text), "image": image}
+                data = GENERATORS[bucket.media](pick)
+                seen.append(data)
+            media = [{"type": bucket.media, "data": data}]
+            return {"bucket": bucket.name, "prompt": text, "prompt_tokens": self._templated_len(text), "media": media}
         if bucket.tokens is None:
             text = nonce + rng.choice(QUESTIONS)
         else:
@@ -121,7 +129,7 @@ class Workload:
 
     def schedule(self, qps, num_requests, tag):
         rng = random.Random(self.seed)
-        self.seen = []
+        self.seen = {}
         reqs = []
         for i in range(num_requests):
             req = self._prompt(rng, f"[{tag}-{i}] ")

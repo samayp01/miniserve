@@ -39,9 +39,20 @@ class Prompt(BaseModel):
     media: list[MediaItem] = []
 
 
+def _decode_image(raw):
+    try:
+        return Image.open(io.BytesIO(raw)).convert("RGB")
+    except UnidentifiedImageError as e:
+        raise ValueError(f"invalid image: {e}") from e
+
+
+DECODERS = {"image": _decode_image}
+
+
 def decode_media(item):
     raw = base64.b64decode(item.data)
-    return {"type": item.type, "data": Image.open(io.BytesIO(raw)).convert("RGB") if item.type == "image" else raw}
+    decode = DECODERS.get(item.type)
+    return {"type": item.type, "data": decode(raw) if decode else raw}
 
 
 def _sse(payload):
@@ -71,7 +82,7 @@ async def generate(body: Prompt, request: Request):
     try:
         ids, items = await asyncio.to_thread(_prepare, body)
         stream = runtime.enqueue(ids, items, body.max_tokens, arrival)
-    except (ValueError, NotImplementedError, UnidentifiedImageError) as e:
+    except (ValueError, NotImplementedError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")
 
