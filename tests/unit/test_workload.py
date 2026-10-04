@@ -3,6 +3,7 @@ import io
 
 from PIL import Image
 
+from benchmarks.bench import request_class
 from benchmarks.workload import Workload
 
 
@@ -30,3 +31,10 @@ def test_images_differ_between_levels():
 def test_repeat_resends_images_from_the_same_level():
     reqs = [r for r in Workload("image", model="smolvlm", repeat=0.9).schedule(4, 64, "a") if "media" in r]
     assert len({r["media"][0]["data"] for r in reqs}) < len(reqs)
+
+
+def test_request_class_separates_text_hits_and_misses():
+    assert request_class({"media": 0, "server": {"media_hits": 0}}) == "text"
+    assert request_class({"media": 1, "server": {"media_hits": 1}}) == "hit"
+    assert request_class({"media": 1, "server": {"media_hits": 0}}) == "miss"
+    assert request_class({"media": 1, "server": None}) == "miss"

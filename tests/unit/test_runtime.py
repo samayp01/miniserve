@@ -185,6 +185,7 @@ def test_metrics_reports_engine_state():
     assert metrics["preemptions"] == 0
     assert metrics["free_blocks"] == metrics["total_blocks"] == 64
     assert metrics["active_mb"] > 0
+    assert metrics["scheduler"] == "fifo"
 
 
 def test_stats_split_ttft_into_queue_and_prefill():

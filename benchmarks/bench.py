@@ -102,6 +102,12 @@ def pct(xs, p):
     return xs[k]
 
 
+def request_class(r):
+    if not r["media"]:
+        return "text"
+    return "hit" if (r["server"] or {}).get("media_hits", 0) >= r["media"] else "miss"
+
+
 def summarize(results):
     ttfts = [(r["token_times"][0] - r["send"]) * 1000 for r in results if r["token_times"]]
     lats = [(r["done"] - r["send"]) * 1000 for r in results]
@@ -115,6 +121,12 @@ def summarize(results):
         bt = [(r["token_times"][0] - r["send"]) * 1000 for r in results if r["bucket"] == name and r["token_times"]]
         by_bucket[name] = {"n": sum(r["bucket"] == name for r in results),
                            "ttft_p50": pct(bt, 50), "ttft_p99": pct(bt, 99)}
+    by_class = {}
+    for name in ("text", "hit", "miss"):
+        ttfts_c = [(r["token_times"][0] - r["send"]) * 1000 for r in results if request_class(r) == name and r["token_times"]]
+        if ttfts_c:
+            by_class[name] = {"n": len(ttfts_c), "ttft_p50": pct(ttfts_c, 50),
+                              "ttft_p99": pct(ttfts_c, 99), "ttft_max": max(ttfts_c)}
     media = sum(r["media"] for r in results)
     hits = sum((r["server"] or {}).get("media_hits", 0) for r in results)
     return {
@@ -124,6 +136,7 @@ def summarize(results):
         "itl_p50": pct(itls, 50), "itl_p99": pct(itls, 99), "itl_max": max(itls, default=float("nan")),
         "lat_p50": pct(lats, 50), "lat_p99": pct(lats, 99),
         "by_bucket": by_bucket,
+        "by_class": by_class,
         "media_hit_rate": hits / media if media else None,
     }
 
@@ -194,6 +207,7 @@ async def main():
     ap.add_argument("--spec", choices=list(SPECS), default="mixed")
     ap.add_argument("--model", choices=list(MODELS), default="llama")
     ap.add_argument("--repeat", type=float, default=0.0)
+    ap.add_argument("--tag", default=None)
     ap.add_argument("--qps-list", default="1,2,4,8,16,32")
     ap.add_argument("--num-requests", type=int, default=64)
     ap.add_argument("--max-tokens", type=int, default=128)
@@ -217,6 +231,8 @@ async def main():
             print(f"could not reach {args.target} at {base} — is the server running?")
             return
         has_metrics = args.target == "miniserve"
+        if has_metrics:
+            env["scheduler"] = (await client.get(base + "/metrics")).json().get("scheduler")
 
         print(f"\n{args.target} @ {base}  spec={args.spec} seed={args.seed}  "
               f"({args.num_requests} reqs/level, max_tokens={args.max_tokens})\n")
@@ -255,10 +271,19 @@ async def main():
                 f"  {bb[b]['ttft_p50']:>7.0f} / {bb[b]['ttft_p99']:>5.0f}ms" if b in bb else f"  {'-':>17}"
                 for b in buckets))
 
+    if any(lv["summary"]["by_class"] for lv in levels):
+        print(f"\nttft by class (p50 / p99 / max)\n{'qps':>5}" + "".join(f"  {c:>23}" for c in ("text", "hit", "miss")))
+        for lv in levels:
+            bc = lv["summary"]["by_class"]
+            print(f"{lv['qps']:>5g}" + "".join(
+                f"  {bc[c]['ttft_p50']:>6.0f} /{bc[c]['ttft_p99']:>6.0f} /{bc[c]['ttft_max']:>6.0f}" if c in bc else f"  {'-':>23}"
+                for c in ("text", "hit", "miss")))
+
     sha = (env["git_sha"] or "nogit")[:7] + ("-dirty" if env["git_dirty"] else "")
     name = args.target if args.model == "llama" else f"{args.target}-{args.model}"
     if args.repeat:
         name += f"-r{round(args.repeat * 100)}"
+    name += "".join(f"-{part}" for part in (env.get("scheduler"), args.tag) if part)
     out = Path(args.out) if args.out else RESULTS / args.spec / f"{name}-{sha}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     config = {k: v for k, v in vars(args).items() if k != "out"}

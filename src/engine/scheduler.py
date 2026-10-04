@@ -2,6 +2,8 @@ import time
 
 
 class FifoScheduler:
+    name = "fifo"
+
     def order(self, reqs, engine):
         return list(reqs)
 
@@ -12,6 +14,7 @@ class FifoScheduler:
 class PriorityScheduler(FifoScheduler):
     def __init__(self, age_weight=1.0):
         self.age_weight = age_weight
+        self.name = f"priority-w{age_weight:g}"
         self.cost_ms = {"piece": 20.0, "token": 0.1}
 
     def observe(self, kind, ms, units):

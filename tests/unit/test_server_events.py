@@ -6,7 +6,7 @@ import json
 from PIL import Image
 
 from src.api.runtime import MiniserveRuntime
-from src.api.server import MediaItem, decode_media, events
+from src.api.server import MediaItem, decode_media, events, load_scheduler
 from tests.llama import llama
 
 ESSAY = "Write a detailed multi-paragraph essay about the Roman empire."
@@ -114,3 +114,13 @@ def test_decode_media_rejects_an_invalid_image_as_a_value_error():
 def test_decode_media_passes_unknown_types_through_as_bytes():
     item = decode_media(MediaItem(type="audio", data=base64.b64encode(b"wave").decode()))
     assert item == {"type": "audio", "data": b"wave"}
+
+
+def test_load_scheduler_defaults_to_fifo(monkeypatch):
+    monkeypatch.delenv("MINISERVE_AGE_WEIGHT", raising=False)
+    assert load_scheduler().name == "fifo"
+
+
+def test_load_scheduler_reads_the_age_weight(monkeypatch):
+    monkeypatch.setenv("MINISERVE_AGE_WEIGHT", "1")
+    assert load_scheduler().name == "priority-w1"

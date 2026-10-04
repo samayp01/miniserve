@@ -2,6 +2,7 @@ import asyncio
 import base64
 import io
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -11,16 +12,22 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 from src.api.runtime import GenerationError, MiniserveRuntime
+from src.engine.scheduler import FifoScheduler, PriorityScheduler
 from src.models.registry import load_adapter
 
 runtime = None
+
+
+def load_scheduler():
+    weight = os.environ.get("MINISERVE_AGE_WEIGHT")
+    return PriorityScheduler(float(weight)) if weight is not None else FifoScheduler()
 
 
 @asynccontextmanager
 async def lifespan(app):
     global runtime
     if runtime is None:
-        runtime = MiniserveRuntime(load_adapter())
+        runtime = MiniserveRuntime(load_adapter(), scheduler=load_scheduler())
     async with runtime.running():
         yield
 
