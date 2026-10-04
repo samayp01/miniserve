@@ -3,6 +3,21 @@
 - mlx-lm version: 0.31.3
 
 
+### v0.3.1 Encoder Output Cache on SmolVLM-500M
+
+```
+  16 qps, image spec       hit rate          ttft_p50            itl_p99
+  repeated images      cache  +coalesce   cache  +coalesce   cache  +coalesce
+        0%               0%      0%       5359     5151       621      486
+       37%              26%     37%       3924     3308       768      522
+       95%              84%     95%       2272     1472       496      394
+
+  4 qps, 0% -> 89% repeated: ttft_p50 836 -> 168ms, text-only ttft_p50 641 -> 86ms
+```
+
+Caching encoder output by media content cuts median TTFT 5x at 4 QPS and 3.5x at 16 QPS, and text requests gain as much because they stop queueing behind encode work. the cache peaks at 84 MB (~2 MB per image). Coalescing identical in-flight misses leads to cache hits for every repeat and cuts a further 16-35% at 16 QPS, against run-to-run noise of ~5-10% on p50 and ~20% on p99 (the 0% rows).
+
+
 ### v0.3.0 Image Requests on SmolVLM-500M
 
 ```
