@@ -1,3 +1,4 @@
+import time
 from collections import deque
 from math import ceil
 from weakref import WeakValueDictionary
@@ -7,10 +8,12 @@ import mlx.core as mx
 from src.engine.model_runner import prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
 from src.engine.encode_cache import EncodeCache
+from src.engine.scheduler import FifoScheduler
 
 class Engine:
-    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4, encode_cache_mb=1024):
+    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4, encode_cache_mb=1024, scheduler=None):
         self.adapter = adapter
+        self.scheduler = scheduler or FifoScheduler()
         self.encode_budget = encode_budget
         self.encode_cache = EncodeCache(encode_cache_mb * 2**20)
         self.partial = {}
@@ -106,7 +109,7 @@ class Engine:
     def _encode(self):
         budget = self.encode_budget
         claimed = set()
-        for req in self.running:
+        for req in self.scheduler.order(self.running, self):
             for item in req.media:
                 if item.ready:
                     continue
@@ -124,8 +127,10 @@ class Engine:
                 if budget == 0:
                     continue
                 end = min(item.pieces, item.encoded + budget)
+                start = time.perf_counter()
                 vectors = self.adapter.encode(item, item.encoded, end)
                 mx.eval(vectors)
+                self.scheduler.observe("piece", (time.perf_counter() - start) * 1000, end - item.encoded)
                 item.embeds = vectors if item.embeds is None else mx.concatenate([item.embeds, vectors])
                 budget -= end - item.encoded
                 item.encoded = end
@@ -137,8 +142,10 @@ class Engine:
     def step(self):
         if not (self.static and self.running):
             free = self._free_blocks()
-            while self.waiting and len(self.running) < self.max_batch and self._blocks_for(self.waiting[0]) <= free:
-                req = self.waiting.popleft()
+            for req in self.scheduler.order(self.waiting, self):
+                if len(self.running) >= self.max_batch or self._blocks_for(req) > free:
+                    break
+                self.waiting.remove(req)
                 req.cache = make_paged_cache(self.pools)
                 req.mark_admitted()
                 self._lookup(req)
@@ -149,14 +156,16 @@ class Engine:
         ready = [r for r in self.running if r.media_ready]
         for req in ready:
             req.mark_encoded()
-        prefilling = [r for r in ready if not r.prefilled]
+        prefilling = self.scheduler.order([r for r in ready if not r.prefilled], self)
         decoding = [r for r in self.running if r.prefilled and not r.done]
 
         budget = self.chunk_size
         for req in prefilling:
             if budget <= 0:
                 break
+            start = time.perf_counter()
             token, used = prefill_chunk(req, budget, self.adapter)
+            self.scheduler.observe("token", (time.perf_counter() - start) * 1000, used)
             self._record(req, token)
             budget -= used
 

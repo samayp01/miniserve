@@ -8,6 +8,7 @@ from tests.llama import tokenizer
 from src.engine.engine import Engine
 from src.engine.request import Media, Request
 from src.cache.paged_cache import make_block_pools
+from src.engine.scheduler import PriorityScheduler
 from tests.unit.fakes import FakeAdapter
 
 BLOCKS, BLOCK_SIZE = 4, 16
@@ -322,3 +323,41 @@ def test_shared_media_data_is_released_once_encoded():
     with time_limit(60):
         engine.run()
     assert len(engine.media_data) == 0
+
+
+def _expensive_and_cheap():
+    return _media_request(), Request(list(range(10)), max_output_tokens=4)
+
+
+def test_fifo_admits_in_arrival_order():
+    engine = _engine(num_blocks=64, max_batch=1)
+    expensive, cheap = _expensive_and_cheap()
+    engine.add_request(expensive)
+    engine.add_request(cheap)
+    engine.step()
+    assert list(engine.running) == [expensive]
+
+
+def test_priority_admits_the_cheapest_request_first():
+    engine = _engine(num_blocks=64, max_batch=1, scheduler=PriorityScheduler(age_weight=0))
+    expensive, cheap = _expensive_and_cheap()
+    engine.add_request(expensive)
+    engine.add_request(cheap)
+    engine.step()
+    assert list(engine.running) == [cheap]
+
+
+def test_aging_lets_a_long_waiting_expensive_request_go_first():
+    engine = _engine(num_blocks=64, max_batch=1, scheduler=PriorityScheduler(age_weight=1))
+    expensive, cheap = _expensive_and_cheap()
+    expensive.arrival_time -= 10
+    engine.add_request(expensive)
+    engine.add_request(cheap)
+    engine.step()
+    assert list(engine.running) == [expensive]
+
+
+def test_cost_estimate_follows_measurements():
+    scheduler = PriorityScheduler()
+    scheduler.observe("piece", 200.0, 5)
+    assert scheduler.cost_ms["piece"] == pytest.approx(22.0)
