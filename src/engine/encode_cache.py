@@ -18,6 +18,9 @@ class EncodeCache:
         self.hits += 1
         return embeds
 
+    def peek(self, key):
+        return self.entries.get(key)
+
     def put(self, key, embeds):
         if key in self.entries or embeds.nbytes > self.max_bytes:
             return

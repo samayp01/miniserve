@@ -256,3 +256,48 @@ def test_repeated_media_key_skips_encoding():
     assert not first.media[0].hit
     assert second.media[0].hit and second.prefilled
     assert fake.encode_calls == calls
+
+
+def _keyed_pair(key="a"):
+    first, second = _media_request(), _media_request()
+    first.media[0].key = second.media[0].key = key
+    return first, second
+
+
+def test_identical_media_in_flight_is_encoded_once():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    first, second = _keyed_pair()
+    engine.add_request(first)
+    engine.add_request(second)
+    for _ in range(5):
+        engine.step()
+    assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
+    assert not first.media[0].hit and second.media[0].hit
+    assert first.prefilled and second.prefilled
+
+
+def test_waiter_continues_from_an_aborted_encoders_progress():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    first, second = _keyed_pair()
+    engine.add_request(first)
+    engine.add_request(second)
+    engine.step()
+    engine.abort(first)
+    with time_limit(60):
+        engine.run()
+    assert second.done
+    assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
+    assert engine.partial == {}
+
+
+def test_aborting_an_unshared_encode_keeps_no_progress():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    req = _media_request()
+    req.media[0].key = "a"
+    engine.add_request(req)
+    engine.step()
+    engine.abort(req)
+    assert engine.partial == {}

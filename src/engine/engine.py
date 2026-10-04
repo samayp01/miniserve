@@ -12,6 +12,7 @@ class Engine:
         self.adapter = adapter
         self.encode_budget = encode_budget
         self.encode_cache = EncodeCache(encode_cache_mb * 2**20)
+        self.partial = {}
         self.waiting = deque()
         self.running = deque()
         self.pools = pools
@@ -42,6 +43,19 @@ class Engine:
             for c in req.cache:
                 c.release()
             req.cache = None
+        self._stash(req)
+
+    def _needed(self, key):
+        return any(item.key == key and not item.ready for r in [*self.running, *self.waiting] for item in r.media)
+
+    def _stash(self, req):
+        for item in req.media:
+            if item.key is None or item.ready:
+                continue
+            if not self._needed(item.key):
+                self.partial.pop(item.key, None)
+            elif item.encoded:
+                self.partial[item.key] = (item.embeds, item.encoded)
 
     def _free_blocks(self):
         reserved = sum(self._blocks_for(r) - len(r.cache[0].block_table)
@@ -79,15 +93,30 @@ class Engine:
                 continue
             cached = self.encode_cache.get(item.key)
             if cached is not None:
-                item.embeds, item.encoded, item.data, item.hit = cached, item.pieces, None, True
+                self._fill(item, cached)
+
+    def _fill(self, item, embeds):
+        item.embeds, item.encoded, item.data, item.hit = embeds, item.pieces, None, True
 
     def _encode(self):
         budget = self.encode_budget
+        claimed = set()
         for req in self.running:
             for item in req.media:
-                if budget == 0:
-                    return
                 if item.ready:
+                    continue
+                if item.key is not None:
+                    cached = self.encode_cache.peek(item.key)
+                    if cached is not None:
+                        self._fill(item, cached)
+                        continue
+                    if item.key in claimed:
+                        continue
+                    claimed.add(item.key)
+                    saved = self.partial.pop(item.key, None)
+                    if saved and saved[1] > item.encoded:
+                        item.embeds, item.encoded = saved
+                if budget == 0:
                     continue
                 end = min(item.pieces, item.encoded + budget)
                 vectors = self.adapter.encode(item, item.encoded, end)
