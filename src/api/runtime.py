@@ -134,6 +134,8 @@ class MiniserveRuntime:
             "scheduler": self.engine.scheduler.name,
             "encode_cache_entries": len(self.engine.encode_cache.entries),
             "encode_cache_mb": round(self.engine.encode_cache.bytes / 2**20, 1),
+            "swaps": self.engine.swaps,
+            "swap_mb": round(self.engine.swap.bytes / 2**20, 1) if self.engine.swap else 0.0,
         }
 
     def cancel(self, stream):

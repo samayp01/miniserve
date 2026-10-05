@@ -1,3 +1,4 @@
+import itertools
 import time
 from dataclasses import dataclass, field
 
@@ -23,8 +24,12 @@ class Media:
         return self.encoded >= self.pieces
 
 
+_ids = itertools.count()
+
+
 class Request:
     def __init__(self, prompt_tokens, max_output_tokens=128, media=(), arrival_time=None):
+        self.id = next(_ids)
         self.prompt_tokens = prompt_tokens
         self.media = list(media)
         self.cache = None
@@ -39,6 +44,7 @@ class Request:
         self.finish_time = None
         self.prefilled = False
         self.prefill_pos = 0
+        self.swapped = False
 
     @property
     def media_ready(self):

@@ -7,13 +7,17 @@ import mlx.core as mx
 
 from src.engine.model_runner import prefill_chunk, batched_decode
 from src.cache.paged_cache import make_paged_cache
+from src.cache.swap import NotEnoughBlocks, SwapStore
 from src.engine.encode_cache import EncodeCache
 from src.engine.scheduler import FifoScheduler
 
 class Engine:
-    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4, encode_cache_mb=1024, scheduler=None):
+    def __init__(self, pools, adapter, max_batch=32, static=False, chunk_size=512, encode_budget=4, encode_cache_mb=1024, scheduler=None, swap_min_tokens=None):
         self.adapter = adapter
         self.scheduler = scheduler or FifoScheduler()
+        self.swap_min_tokens = swap_min_tokens
+        self.swap = SwapStore() if swap_min_tokens is not None else None
+        self.swaps = 0
         self.encode_budget = encode_budget
         self.encode_cache = EncodeCache(encode_cache_mb * 2**20)
         self.partial = {}
@@ -51,6 +55,9 @@ class Engine:
             for c in req.cache:
                 c.release()
             req.cache = None
+        if req.swapped:
+            self.swap.discard(f"req{req.id}")
+            req.swapped = False
         self._stash(req)
 
     def _needed(self, key):
@@ -81,11 +88,16 @@ class Engine:
 
     def _preempt(self, req):
         self.preemptions += 1
-        for c in req.cache:
-            c.release()
+        if self.swap is not None and req.cache[0].offset >= self.swap_min_tokens:
+            self.swap.save(f"req{req.id}", req.cache)
+            req.swapped = True
+            self.swaps += 1
+        else:
+            for c in req.cache:
+                c.release()
+            req.prefilled = False
+            req.prefill_pos = 0
         req.cache = None
-        req.prefilled = False
-        req.prefill_pos = 0
         self.running.remove(req)
         self.waiting.appendleft(req)
 
@@ -145,8 +157,15 @@ class Engine:
             for req in self.scheduler.order(self.waiting, self):
                 if len(self.running) >= self.max_batch or self._blocks_for(req) > free:
                     break
-                self.waiting.remove(req)
                 req.cache = make_paged_cache(self.pools)
+                if req.swapped:
+                    try:
+                        self.swap.load(f"req{req.id}", req.cache)
+                    except NotEnoughBlocks:
+                        req.cache = None
+                        break
+                    req.swapped = False
+                self.waiting.remove(req)
                 req.mark_admitted()
                 self._lookup(req)
                 self.running.append(req)

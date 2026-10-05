@@ -9,6 +9,7 @@ class FakeAdapter(ModelAdapter):
     def __init__(self, num_layers=2):
         self.layers = [None] * num_layers
         self.encode_calls = []
+        self.prefilled_tokens = 0
 
     def prepare(self, prompt, media=()):
         return list(range(1, len(prompt) + 1)), []
@@ -22,6 +23,7 @@ class FakeAdapter(ModelAdapter):
         return mx.zeros((1, len(token_ids), 1))
 
     def prefill(self, vectors, cache):
+        self.prefilled_tokens += vectors.shape[1]
         self._store(cache, vectors.shape[1])
         return self._logits(1, vectors.shape[1])
 
