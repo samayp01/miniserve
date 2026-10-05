@@ -5,6 +5,8 @@ from src.models.llama import LlamaAdapter
 from src.engine.engine import Engine
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools, make_paged_cache
+from src.cache.swap import SwapStore
+from src.engine.model_runner import prefill_chunk
 
 llama = LlamaAdapter()
 model, tokenizer = llama.model, llama.tokenizer
@@ -88,7 +90,48 @@ def print_load_curve(loads=(4, 8, 16, 32, 64)):
         print(f"{n:>9} {wall:6.2f}s {tput:8.1f} {pre:>12}")
 
 
+def _timed(fn):
+    mx.synchronize()
+    start = time.perf_counter()
+    fn()
+    mx.synchronize()
+    return (time.perf_counter() - start) * 1000
+
+
+def _swap_point(tokens, store, pools, reps=3):
+    times = []
+    for _ in range(reps + 1):
+        req = Request(list(range(1000, 1000 + tokens)), max_output_tokens=1)
+        req.cache = make_paged_cache(pools)
+
+        def prefill():
+            while not req.prefilled:
+                prefill_chunk(req, 512, llama)
+
+        recompute = _timed(prefill)
+        save = _timed(lambda: store.save("crossover", req.cache))
+        load = _timed(lambda: store.load("crossover", req.cache))
+        for c in req.cache:
+            c.release()
+        times.append((recompute, save, load))
+    return [sorted(t[i] for t in times[1:])[reps // 2] for i in range(3)]
+
+
+def print_swap_crossover(lengths=(256, 1024, 4096, 8192)):
+    pools = make_block_pools(model, 1024, 16)
+    store = SwapStore()
+    print(f"\n{'tokens':>7} {'kv_mb':>7} {'recompute':>10} {'swap_out':>9} {'swap_in':>8} {'swap':>8}")
+    for tokens in lengths:
+        recompute, save, load = _swap_point(tokens, store, pools)
+        kv_mb = tokens * len(model.layers) * 2 * HEADS * DIM * 2 / 2**20
+        print(f"{tokens:>7} {kv_mb:>7.0f} {recompute:>8.0f}ms {save:>7.0f}ms {load:>6.0f}ms {save + load:>6.0f}ms")
+
+
 if __name__ == "__main__":
-    print_paged_concurrency()
-    print_scheduling_benchmark()
-    print_load_curve()
+    import sys
+    if sys.argv[1:] == ["swap"]:
+        print_swap_crossover()
+    else:
+        print_paged_concurrency()
+        print_scheduling_benchmark()
+        print_load_curve()

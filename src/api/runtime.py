@@ -132,6 +132,8 @@ class MiniserveRuntime:
             "active_mb": round(mx.get_active_memory() / 2**20, 1),
             "peak_mb": round(mx.get_peak_memory() / 2**20, 1),
             "scheduler": self.engine.scheduler.name,
+            "max_batch": self.engine.max_batch,
+            "swap_min_tokens": self.engine.swap_min_tokens,
             "encode_cache_entries": len(self.engine.encode_cache.entries),
             "encode_cache_mb": round(self.engine.encode_cache.bytes / 2**20, 1),
             "swaps": self.engine.swaps,

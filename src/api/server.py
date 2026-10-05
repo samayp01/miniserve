@@ -23,11 +23,20 @@ def load_scheduler():
     return PriorityScheduler(float(weight)) if weight is not None else FifoScheduler()
 
 
+def engine_settings():
+    settings = {"scheduler": load_scheduler()}
+    for name, key in (("MINISERVE_MAX_BATCH", "max_batch"), ("MINISERVE_KV_BLOCKS", "num_blocks"),
+                      ("MINISERVE_SWAP_MIN_TOKENS", "swap_min_tokens")):
+        if name in os.environ:
+            settings[key] = int(os.environ[name])
+    return settings
+
+
 @asynccontextmanager
 async def lifespan(app):
     global runtime
     if runtime is None:
-        runtime = MiniserveRuntime(load_adapter(), scheduler=load_scheduler())
+        runtime = MiniserveRuntime(load_adapter(), **engine_settings())
     async with runtime.running():
         yield
 

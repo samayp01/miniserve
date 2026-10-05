@@ -6,7 +6,7 @@ import json
 from PIL import Image
 
 from src.api.runtime import MiniserveRuntime
-from src.api.server import MediaItem, decode_media, events, load_scheduler
+from src.api.server import MediaItem, decode_media, engine_settings, events, load_scheduler
 from tests.llama import llama
 
 ESSAY = "Write a detailed multi-paragraph essay about the Roman empire."
@@ -124,3 +124,17 @@ def test_load_scheduler_defaults_to_fifo(monkeypatch):
 def test_load_scheduler_reads_the_age_weight(monkeypatch):
     monkeypatch.setenv("MINISERVE_AGE_WEIGHT", "1")
     assert load_scheduler().name == "priority-w1"
+
+
+def test_engine_settings_has_only_the_scheduler_by_default(monkeypatch):
+    for name in ("MINISERVE_MAX_BATCH", "MINISERVE_KV_BLOCKS", "MINISERVE_SWAP_MIN_TOKENS", "MINISERVE_AGE_WEIGHT"):
+        monkeypatch.delenv(name, raising=False)
+    assert list(engine_settings()) == ["scheduler"]
+
+
+def test_engine_settings_reads_memory_settings(monkeypatch):
+    monkeypatch.setenv("MINISERVE_MAX_BATCH", "128")
+    monkeypatch.setenv("MINISERVE_KV_BLOCKS", "1024")
+    monkeypatch.setenv("MINISERVE_SWAP_MIN_TOKENS", "0")
+    settings = engine_settings()
+    assert (settings["max_batch"], settings["num_blocks"], settings["swap_min_tokens"]) == (128, 1024, 0)

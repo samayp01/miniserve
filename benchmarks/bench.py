@@ -148,6 +148,8 @@ def summarize_server(samples):
         "max_waiting": max(s["waiting"] for s in samples),
         "max_running": max(s["running"] for s in samples),
         "preemptions": samples[-1]["preemptions"] - samples[0]["preemptions"],
+        "swaps": samples[-1].get("swaps", 0) - samples[0].get("swaps", 0),
+        "max_swap_mb": max(s.get("swap_mb", 0) for s in samples),
         "min_free_blocks": min(s["free_blocks"] for s in samples),
         "total_blocks": samples[0]["total_blocks"],
         "max_active_mb": max(s["active_mb"] for s in samples),
@@ -232,7 +234,9 @@ async def main():
             return
         has_metrics = args.target == "miniserve"
         if has_metrics:
-            env["scheduler"] = (await client.get(base + "/metrics")).json().get("scheduler")
+            snapshot = (await client.get(base + "/metrics")).json()
+            env["scheduler"] = snapshot.get("scheduler")
+            env["server_config"] = {k: snapshot.get(k) for k in ("max_batch", "swap_min_tokens", "total_blocks")}
 
         print(f"\n{args.target} @ {base}  spec={args.spec} seed={args.seed}  "
               f"({args.num_requests} reqs/level, max_tokens={args.max_tokens})\n")
@@ -260,6 +264,8 @@ async def main():
                          f"{server['preemptions']:>4}  {server['max_active_mb']:>7.0f}")
             if s["media_hit_rate"] is not None:
                 line += f"  hit {s['media_hit_rate']:.0%}"
+            if server and server["swaps"]:
+                line += f"  swaps {server['swaps']} (peak {server['max_swap_mb']:.0f} MB)"
             print(line, flush=True)
 
     buckets = list(levels[0]["summary"]["by_bucket"])

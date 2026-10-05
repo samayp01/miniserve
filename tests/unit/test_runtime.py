@@ -186,6 +186,7 @@ def test_metrics_reports_engine_state():
     assert metrics["free_blocks"] == metrics["total_blocks"] == 64
     assert metrics["active_mb"] > 0
     assert metrics["scheduler"] == "fifo"
+    assert metrics["max_batch"] == 32 and metrics["swap_min_tokens"] is None
 
 
 def test_stats_split_ttft_into_queue_and_prefill():
