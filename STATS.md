@@ -3,6 +3,19 @@
 - mlx-lm version: 0.31.3
 
 
+### v0.4.0 Cost and Age Based Scheduling on SmolVLM-500M
+
+```
+  8 qps, image spec, 50% repeats     ttft p50 text / hit / miss    worst case text / hit / miss
+  fifo                                 2982 / 1369 / 4174 ms          8.8 /  9.0 / 10.2 s
+  priority, age weight 0               1099 / 1483 / 9557 ms          8.3 / 15.7 / 20.5 s
+  priority, age weight 1               2875 / 1425 / 4686 ms          8.2 /  7.6 /  9.6 s
+  priority, age weight 10              3013 / 1617 / 3865 ms          8.4 /  8.3 /  9.1 s
+```
+
+Ranking requests by estimated remaining work with no aging gets text 2.7x faster than FIFO but starves image requests, whose worst-case TTFT doubles to 15-20 s. With an age weight of 1 or more, multi-second waits outweigh any request's work and the scheduler behaves like FIFO.
+
+
 ### v0.3.1 Encoder Output Cache on SmolVLM-500M
 
 ```
