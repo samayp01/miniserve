@@ -3,6 +3,24 @@
 - mlx-lm version: 0.31.3
 
 
+### v0.5.0 Swapping Preempted KV to SSD
+
+```
+  one request, Llama-3.2-1B       16      256     1024     4096     8192 tokens
+  recompute (prefill)           10ms     64ms    255ms    1.1 s    2.6 s
+  swap out + in                  1ms      6ms     11ms     42ms    113ms
+
+  mixed @ 16 qps, max_batch 128     tok/s            ttft_p50         running   preemptions
+  KV pool                       recompute  swap   recompute  swap
+  512 blocks (8k slots)            299     331     15.5 s   12.6 s     29-37        25
+  1024 blocks (16k, avg of 2)      330     350     12.0 s   10.4 s     51-58     13-19
+  2048 blocks (33k)                360     394      5.7 s    6.1 s     84-88     13-17
+  4096 blocks (65k)                384     389      4.9 s    4.8 s        85         0
+```
+
+With the OS file cache bypassed the SSD moves ~10 GB/s, so swapping a preempted request's KV out and back is 10-26x faster than recomputing it at every length from 16 to 8192 tokens, and there is no crossover where recompute provides performance gains over simply reading from disk on this machine. 512 to 4096 blocks lets ~85 instead of ~33 requests run at once and cuts median TTFT 3x, while swapping instead of recomputing adds 6-11% throughput wherever requests get preempted (about what doubling the pool gives) and nothing once they don't.
+
+
 ### v0.4.0 Cost and Age Based Scheduling on SmolVLM-500M
 
 ```
