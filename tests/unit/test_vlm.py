@@ -86,3 +86,37 @@ def test_same_image_twice_hits_the_encode_cache():
     for req in (first, second):
         answer = vlm.tokenizer.decode(req.output_tokens).lower()
         assert "red" in answer and "circle" in answer
+
+
+def _frame(x):
+    image = Image.new("RGB", (512, 512), (30, 60, 160))
+    ImageDraw.Draw(image).ellipse((50 + x, 150, 250 + x, 350), fill=(220, 30, 30))
+    return image
+
+
+def test_prepare_splits_several_tiled_images():
+    wide = Image.new("RGB", (1024, 768), (0, 120, 0))
+    ids, items = vlm.prepare("Compare them.", [{"type": "image", "data": _circle()}, {"type": "image", "data": wide}])
+    assert [item.pieces for item in items] == [17, 13]
+    assert [len(item.positions) for item in items] == [1088, 832]
+    assert all(ids[p] == vlm.image_token for item in items for p in item.positions)
+    assert items[0].key != items[1].key
+
+
+def test_frames_are_untiled_and_keyed_separately():
+    ids, items = vlm.prepare("What changed?", [{"type": "frame", "data": _frame(x)} for x in (0, 100)])
+    assert [item.pieces for item in items] == [1, 1]
+    assert [len(item.positions) for item in items] == [64, 64]
+    assert all(ids[p] == vlm.image_token for item in items for p in item.positions)
+    assert items[0].key != items[1].key
+
+
+def test_rejects_mixing_images_and_frames():
+    with pytest.raises(NotImplementedError, match="can't mix"):
+        vlm.prepare("Hi", [{"type": "image", "data": _circle()}, {"type": "frame", "data": _frame(0)}])
+
+
+def test_answers_about_frames_through_the_engine():
+    ids, media = vlm.prepare("What color is the circle?", [{"type": "frame", "data": _frame(x)} for x in (0, 100, 200)])
+    [tokens] = _run(Request(ids, max_output_tokens=20, media=media))
+    assert "red" in vlm.tokenizer.decode(tokens).lower()

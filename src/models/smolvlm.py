@@ -31,6 +31,7 @@ class SmolVLMAdapter(ModelAdapter):
         self.model, self.processor = load_vlm(name)
         self.tokenizer = self.processor.tokenizer
         self.image_token = self.model.config.image_token_index
+        self.global_token = self.tokenizer.convert_tokens_to_ids("<global-img>")
         self.eos_token = self.processor.tokenizer.convert_tokens_to_ids("<end_of_utterance>")
 
     @property
@@ -38,21 +39,32 @@ class SmolVLMAdapter(ModelAdapter):
         return self.model.language_model.layers
 
     def prepare(self, prompt, media=()):
-        for item in media:
-            if item["type"] != "image":
-                raise NotImplementedError(f"{type(self).__name__} can't take {item['type']}")
-        if len(media) > 1:
-            raise NotImplementedError(f"{type(self).__name__} takes one image per request")
+        kinds = {item["type"] for item in media}
+        for kind in sorted(kinds - {"image", "frame"}):
+            raise NotImplementedError(f"{type(self).__name__} can't take {kind}")
+        if kinds == {"image", "frame"}:
+            raise NotImplementedError(f"{type(self).__name__} can't mix images and frames in one request")
         images = [item["data"] for item in media]
         text = apply_chat_template(self.processor, self.model.config, prompt, num_images=len(images))
-        inputs = self.processor(text=[text], images=[images] if images else None, return_tensors="np", add_special_tokens=False)
+        inputs = self.processor(text=[text], images=[images] if images else None, return_tensors="np",
+                                add_special_tokens=False, do_image_splitting="frame" not in kinds)
         ids = inputs["input_ids"][0].tolist()
-        positions = [i for i, t in enumerate(ids) if t == self.image_token]
-        if not images:
-            return ids, []
-        image = images[0]
-        key = hashlib.blake2b(f"{image.mode}{image.size}".encode() + image.tobytes()).hexdigest()
-        return ids, [Media(positions=positions, data=inputs["pixel_values"][0], key=key)]
+        return ids, self._split(ids, inputs["pixel_values"][0], images) if images else []
+
+    def _split(self, ids, views, images):
+        per_view = self.processor.image_seq_len
+        placeholders = [i for i, t in enumerate(ids) if t == self.image_token]
+        ends = [i + 1 + per_view for i, t in enumerate(ids) if t == self.global_token]
+        items, start, first = [], 0, 0
+        for image, end in zip(images, ends):
+            positions = [p for p in placeholders if start <= p < end]
+            count = len(positions) // per_view
+            items.append(Media(positions=positions, data=views[first:first + count], key=self._key(image)))
+            start, first = end, first + count
+        return items
+
+    def _key(self, image):
+        return hashlib.blake2b(f"{image.mode}{image.size}".encode() + image.tobytes()).hexdigest()
 
     def encode(self, media, start, end):
         per_piece = len(media.positions) // media.pieces
