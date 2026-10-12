@@ -120,3 +120,23 @@ def test_answers_about_frames_through_the_engine():
     ids, media = vlm.prepare("What color is the circle?", [{"type": "frame", "data": _frame(x)} for x in (0, 100, 200)])
     [tokens] = _run(Request(ids, max_output_tokens=20, media=media))
     assert "red" in vlm.tokenizer.decode(tokens).lower()
+
+
+def test_stream_window_answers_from_prefetched_frames():
+    async def go():
+        runtime = MiniserveRuntime(vlm, num_blocks=256)
+        async with runtime.running():
+            stream = runtime.open_stream(fps=100, window=2)
+            for i, x in enumerate((0, 100, 200)):
+                assert stream.admit(float(i)) is None
+                frame = _frame(x)
+                runtime.ingest(stream, frame, vlm.prepare("", [{"type": "frame", "data": frame}])[1])
+                while stream.pending is not None and not stream.pending.ready:
+                    await asyncio.sleep(0.01)
+            response = runtime.submit("What color is the circle?", 20, stream.media())
+            text = "".join([delta async for delta in response]).lower()
+            return text, response.request
+
+    text, req = asyncio.run(go())
+    assert "red" in text
+    assert [item.hit for item in req.media] == [True, True]

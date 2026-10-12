@@ -6,7 +6,7 @@ import mlx.core as mx
 import numpy as np
 
 
-@dataclass
+@dataclass(eq=False)
 class Media:
     positions: list[int]
     data: np.ndarray | mx.array | None = None

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import mlx.core as mx
 
+from src.api.streams import MediaStream
 from src.engine.engine import Engine
 from src.engine.request import Request
 from src.cache.paged_cache import make_block_pools
@@ -111,6 +112,18 @@ class MiniserveRuntime:
         self.adapter = adapter
         self.engine = Engine(make_block_pools(adapter, num_blocks, block_size), adapter, **engine_kwargs)
         self.streams = []
+        self.media_streams = {}
+
+    def open_stream(self, fps=1.0, window=30):
+        stream = MediaStream(fps, window)
+        self.media_streams[stream.id] = stream
+        return stream
+
+    def close_stream(self, stream_id):
+        return self.media_streams.pop(stream_id, None)
+
+    def ingest(self, stream, frame, items):
+        stream.keep(frame, self.engine.prefetch_media(items))
 
     def submit(self, prompt, max_tokens=128, media=()):
         return self.enqueue(*self.adapter.prepare(prompt, media), max_tokens)
@@ -139,6 +152,10 @@ class MiniserveRuntime:
             "swaps": self.engine.swaps,
             "swap_mb": round(self.engine.swap.bytes / 2**20, 1) if self.engine.swap else 0.0,
             "prefetch_backlog": len(self.engine.prefetch),
+            "media_streams": len(self.media_streams),
+            "frames_kept": sum(s.kept for s in self.media_streams.values()),
+            "frames_skipped": sum(s.skipped for s in self.media_streams.values()),
+            "frames_dropped": sum(s.dropped for s in self.media_streams.values()),
         }
 
     def cancel(self, stream):

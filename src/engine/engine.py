@@ -38,11 +38,14 @@ class Engine:
         return bool(self.waiting or self.running or self.prefetch)
 
     def prefetch_media(self, items):
+        queued = []
         for item in items:
             if item.key is None or self.encode_cache.peek(item.key) is not None:
                 continue
             item.data = self.media_data.setdefault(item.key, item.data)
             self.prefetch.append(item)
+            queued.append(item)
+        return queued
 
     def add_request(self, req):
         if req.max_output_tokens < 1:

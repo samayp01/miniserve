@@ -434,3 +434,10 @@ def test_aborted_encode_hands_progress_to_a_prefetch_of_the_same_media():
         engine.run()
     assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
     assert engine.encode_cache.peek("a") is not None
+
+
+def test_prefetch_media_returns_only_what_it_queued():
+    engine = _engine(num_blocks=64)
+    engine.encode_cache.put("a", mx.zeros((34, 1)))
+    fresh = _keyed_media("b")
+    assert engine.prefetch_media([_keyed_media("a"), fresh]) == [fresh]

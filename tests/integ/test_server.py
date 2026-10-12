@@ -72,3 +72,20 @@ def test_generate_rejects_media_the_model_cannot_take(server):
         response = client.post(f"{server}/generate", json={"prompt": "Hi", "media": [{"type": "image", "data": image}]})
     assert response.status_code == 400
     assert "can't take media" in response.json()["detail"]
+
+
+def _png():
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+def test_stream_endpoints_on_a_model_without_media(server):
+    with httpx.Client(timeout=60) as client:
+        stream_id = client.post(f"{server}/streams", json={"fps": 1, "window": 4}).json()["stream_id"]
+        frame = client.post(f"{server}/streams/{stream_id}/frames", json={"data": _png()})
+        assert frame.status_code == 400 and "can't take media" in frame.json()["detail"]
+        assert client.post(f"{server}/streams/{stream_id}/ask", json={"prompt": "What now?"}).status_code == 400
+        assert client.post(f"{server}/streams/nope/frames", json={"data": _png()}).status_code == 404
+        assert client.delete(f"{server}/streams/{stream_id}").json() == {"kept": 0, "skipped": 0, "dropped": 0}
+        assert client.delete(f"{server}/streams/{stream_id}").status_code == 404

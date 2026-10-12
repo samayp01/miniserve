@@ -55,6 +55,20 @@ class Prompt(BaseModel):
     media: list[MediaItem] = []
 
 
+class StreamOptions(BaseModel):
+    fps: float = Field(1.0, gt=0)
+    window: int = Field(30, gt=0)
+
+
+class Frame(BaseModel):
+    data: str
+
+
+class Question(BaseModel):
+    prompt: str
+    max_tokens: int = Field(128, gt=0)
+
+
 def _decode_image(raw):
     try:
         return Image.open(io.BytesIO(raw)).convert("RGB")
@@ -62,7 +76,7 @@ def _decode_image(raw):
         raise ValueError(f"invalid image: {e}") from e
 
 
-DECODERS = {"image": _decode_image}
+DECODERS = {"image": _decode_image, "frame": _decode_image}
 
 
 def decode_media(item):
@@ -88,19 +102,67 @@ async def events(stream, is_disconnected):
         stream.cancel()
 
 
-def _prepare(body):
-    return runtime.adapter.prepare(body.prompt, [decode_media(m) for m in body.media])
+async def _respond(prompt, max_tokens, load_media, request):
+    arrival = time.time()
+    try:
+        ids, items = await asyncio.to_thread(lambda: runtime.adapter.prepare(prompt, load_media()))
+        stream = runtime.enqueue(ids, items, max_tokens, arrival)
+    except (ValueError, NotImplementedError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")
+
+
+def _media_stream(stream_id):
+    stream = runtime.media_streams.get(stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail=f"unknown stream {stream_id}")
+    return stream
+
+
+def _prepare_frame(data):
+    frame = decode_media(MediaItem(type="frame", data=data))
+    return frame["data"], runtime.adapter.prepare("", [frame])[1]
 
 
 @app.post("/generate")
 async def generate(body: Prompt, request: Request):
-    arrival = time.time()
+    return await _respond(body.prompt, body.max_tokens, lambda: [decode_media(m) for m in body.media], request)
+
+
+@app.post("/streams")
+async def open_stream(body: StreamOptions):
+    return {"stream_id": runtime.open_stream(body.fps, body.window).id}
+
+
+@app.post("/streams/{stream_id}/frames")
+async def add_frame(stream_id: str, body: Frame):
+    stream = _media_stream(stream_id)
+    reason = stream.admit(time.time())
+    if reason:
+        return {"kept": False, "reason": reason}
     try:
-        ids, items = await asyncio.to_thread(_prepare, body)
-        stream = runtime.enqueue(ids, items, body.max_tokens, arrival)
+        frame, items = await asyncio.to_thread(_prepare_frame, body.data)
     except (ValueError, NotImplementedError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")
+    runtime.ingest(stream, frame, items)
+    return {"kept": True}
+
+
+@app.post("/streams/{stream_id}/ask")
+async def ask(stream_id: str, body: Question, request: Request):
+    stream = _media_stream(stream_id)
+    if not stream.frames:
+        raise HTTPException(status_code=400, detail="stream has no frames yet")
+    media = stream.media()
+    return await _respond(body.prompt, body.max_tokens, lambda: media, request)
+
+
+@app.delete("/streams/{stream_id}")
+async def close_stream(stream_id: str):
+    stream = runtime.close_stream(stream_id)
+    if stream is None:
+        raise HTTPException(status_code=404, detail=f"unknown stream {stream_id}")
+    return {"kept": stream.kept, "skipped": stream.skipped, "dropped": stream.dropped}
 
 
 @app.get("/metrics")
