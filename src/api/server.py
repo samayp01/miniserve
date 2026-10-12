@@ -26,7 +26,7 @@ def load_scheduler():
 def engine_settings():
     settings = {"scheduler": load_scheduler()}
     for name, key in (("MINISERVE_MAX_BATCH", "max_batch"), ("MINISERVE_KV_BLOCKS", "num_blocks"),
-                      ("MINISERVE_SWAP_MIN_TOKENS", "swap_min_tokens")):
+                      ("MINISERVE_SWAP_MIN_TOKENS", "swap_min_tokens"), ("MINISERVE_ENCODE_CACHE_MB", "encode_cache_mb")):
         if name in os.environ:
             settings[key] = int(os.environ[name])
     return settings

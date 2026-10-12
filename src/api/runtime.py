@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import resource
+import sys
 from contextlib import asynccontextmanager
 
 import mlx.core as mx
@@ -51,6 +53,7 @@ def _ms(start, end):
 def _stats(req):
     return {
         "tokens": len(req.output_tokens),
+        "media": len(req.media),
         "prompt_tokens": len(req.prompt_tokens),
         "media_hits": sum(item.hit for item in req.media),
         "ttft_ms": _ms(req.arrival_time, req.first_token_time),
@@ -144,6 +147,7 @@ class MiniserveRuntime:
             "total_blocks": self.engine.capacity,
             "active_mb": round(mx.get_active_memory() / 2**20, 1),
             "peak_mb": round(mx.get_peak_memory() / 2**20, 1),
+            "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2**20 if sys.platform == "darwin" else 2**10), 1),
             "scheduler": self.engine.scheduler.name,
             "max_batch": self.engine.max_batch,
             "swap_min_tokens": self.engine.swap_min_tokens,

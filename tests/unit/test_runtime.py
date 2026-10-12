@@ -187,6 +187,7 @@ def test_metrics_reports_engine_state():
     assert metrics["active_mb"] > 0
     assert metrics["scheduler"] == "fifo"
     assert metrics["max_batch"] == 32 and metrics["swap_min_tokens"] is None
+    assert metrics["peak_rss_mb"] > 0
 
 
 def test_stats_split_ttft_into_queue_and_prefill():
@@ -196,3 +197,4 @@ def test_stats_split_ttft_into_queue_and_prefill():
     stats = _stats(req)
     assert (stats["prepare_ms"], stats["queue_ms"], stats["encode_ms"], stats["prefill_ms"], stats["decode_ms"]) == (250.0, 250.0, 100.0, 150.0, 1250.0)
     assert stats["prepare_ms"] + stats["queue_ms"] + stats["encode_ms"] + stats["prefill_ms"] == stats["ttft_ms"]
+    assert stats["media"] == 0
