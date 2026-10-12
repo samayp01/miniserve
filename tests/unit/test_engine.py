@@ -1,6 +1,7 @@
 import signal
 from contextlib import contextmanager
 
+import mlx.core as mx
 import numpy as np
 import pytest
 
@@ -361,3 +362,75 @@ def test_cost_estimate_follows_measurements():
     scheduler = PriorityScheduler()
     scheduler.observe("piece", 200.0, 5)
     assert scheduler.cost_ms["piece"] == pytest.approx(22.0)
+
+
+def _keyed_media(key, pieces=17, per_piece=2):
+    return Media(positions=list(range(pieces * per_piece)), data=np.zeros((pieces, 1)), key=key)
+
+
+def test_prefetch_encodes_in_the_background_and_fills_the_cache():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    engine.prefetch_media([_keyed_media("a")])
+    with time_limit(60):
+        engine.run()
+    assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
+    assert not engine.prefetch and engine.encode_cache.peek("a") is not None
+
+
+def test_request_after_prefetch_is_a_hit_with_no_encoding():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    engine.prefetch_media([_keyed_media("a")])
+    with time_limit(60):
+        engine.run()
+    calls = list(fake.encode_calls)
+    req = _media_request()
+    req.media[0].key = "a"
+    engine.add_request(req)
+    engine.step()
+    assert req.media[0].hit and req.prefilled
+    assert fake.encode_calls == calls
+
+
+def test_running_requests_get_the_encode_budget_before_prefetch():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    engine.prefetch_media([_keyed_media("bg")])
+    engine.add_request(_media_request(pieces=3))
+    engine.step()
+    assert fake.encode_calls == [(0, 3), (0, 1)]
+
+
+def test_prefetch_does_not_re_encode_what_a_request_is_encoding():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    req = _media_request()
+    req.media[0].key = "a"
+    engine.add_request(req)
+    engine.prefetch_media([_keyed_media("a")])
+    with time_limit(60):
+        engine.run()
+    assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
+
+
+def test_prefetch_skips_media_already_cached():
+    engine = _engine(num_blocks=64)
+    engine.encode_cache.put("a", mx.zeros((34, 1)))
+    engine.prefetch_media([_keyed_media("a")])
+    assert not engine.prefetch
+
+
+def test_aborted_encode_hands_progress_to_a_prefetch_of_the_same_media():
+    fake = FakeAdapter()
+    engine = Engine(make_block_pools(fake, 64, BLOCK_SIZE), adapter=fake, encode_budget=4)
+    req = _media_request()
+    req.media[0].key = "a"
+    engine.add_request(req)
+    engine.prefetch_media([_keyed_media("a")])
+    engine.step()
+    engine.abort(req)
+    with time_limit(60):
+        engine.run()
+    assert fake.encode_calls == [(0, 4), (4, 8), (8, 12), (12, 16), (16, 17)]
+    assert engine.encode_cache.peek("a") is not None

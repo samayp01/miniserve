@@ -138,6 +138,7 @@ class MiniserveRuntime:
             "encode_cache_mb": round(self.engine.encode_cache.bytes / 2**20, 1),
             "swaps": self.engine.swaps,
             "swap_mb": round(self.engine.swap.bytes / 2**20, 1) if self.engine.swap else 0.0,
+            "prefetch_backlog": len(self.engine.prefetch),
         }
 
     def cancel(self, stream):
@@ -172,7 +173,7 @@ class MiniserveRuntime:
 
     async def run(self):
         while True:
-            if self.engine.running or self.engine.waiting:
+            if self.engine.busy:
                 try:
                     self.engine.step()
                 except Exception as error:

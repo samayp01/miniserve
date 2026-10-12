@@ -18,6 +18,7 @@ class Engine:
         self.swap_min_tokens = swap_min_tokens
         self.swap = SwapStore() if swap_min_tokens is not None else None
         self.swaps = 0
+        self.prefetch = deque()
         self.encode_budget = encode_budget
         self.encode_cache = EncodeCache(encode_cache_mb * 2**20)
         self.partial = {}
@@ -31,6 +32,17 @@ class Engine:
         self.block_size = pools[0].block_size
         self.capacity = pools[0].num_blocks
         self.preemptions = 0
+
+    @property
+    def busy(self):
+        return bool(self.waiting or self.running or self.prefetch)
+
+    def prefetch_media(self, items):
+        for item in items:
+            if item.key is None or self.encode_cache.peek(item.key) is not None:
+                continue
+            item.data = self.media_data.setdefault(item.key, item.data)
+            self.prefetch.append(item)
 
     def add_request(self, req):
         if req.max_output_tokens < 1:
@@ -61,7 +73,8 @@ class Engine:
         self._stash(req)
 
     def _needed(self, key):
-        return any(item.key == key and not item.ready for r in [*self.running, *self.waiting] for item in r.media)
+        items = [item for r in [*self.running, *self.waiting] for item in r.media] + list(self.prefetch)
+        return any(item.key == key and not item.ready for item in items)
 
     def _stash(self, req):
         for item in req.media:
@@ -123,33 +136,41 @@ class Engine:
         claimed = set()
         for req in self.scheduler.order(self.running, self):
             for item in req.media:
-                if item.ready:
-                    continue
-                if item.key is not None:
-                    cached = self.encode_cache.peek(item.key)
-                    if cached is not None:
-                        self._fill(item, cached)
-                        continue
-                    if item.key in claimed:
-                        continue
-                    claimed.add(item.key)
-                    saved = self.partial.pop(item.key, None)
-                    if saved and saved[1] > item.encoded:
-                        item.embeds, item.encoded = saved
-                if budget == 0:
-                    continue
-                end = min(item.pieces, item.encoded + budget)
-                start = time.perf_counter()
-                vectors = self.adapter.encode(item, item.encoded, end)
-                mx.eval(vectors)
-                self.scheduler.observe("piece", (time.perf_counter() - start) * 1000, end - item.encoded)
-                item.embeds = vectors if item.embeds is None else mx.concatenate([item.embeds, vectors])
-                budget -= end - item.encoded
-                item.encoded = end
-                if item.ready:
-                    item.data = None
-                    if item.key is not None:
-                        self.encode_cache.put(item.key, item.embeds)
+                budget = self._advance(item, budget, claimed)
+        for item in list(self.prefetch):
+            budget = self._advance(item, budget, claimed)
+            if item.ready:
+                self.prefetch.remove(item)
+
+    def _advance(self, item, budget, claimed):
+        if item.ready:
+            return budget
+        if item.key is not None:
+            cached = self.encode_cache.peek(item.key)
+            if cached is not None:
+                self._fill(item, cached)
+                return budget
+            if item.key in claimed:
+                return budget
+            claimed.add(item.key)
+            saved = self.partial.pop(item.key, None)
+            if saved and saved[1] > item.encoded:
+                item.embeds, item.encoded = saved
+        if budget == 0:
+            return budget
+        end = min(item.pieces, item.encoded + budget)
+        start = time.perf_counter()
+        vectors = self.adapter.encode(item, item.encoded, end)
+        mx.eval(vectors)
+        self.scheduler.observe("piece", (time.perf_counter() - start) * 1000, end - item.encoded)
+        item.embeds = vectors if item.embeds is None else mx.concatenate([item.embeds, vectors])
+        budget -= end - item.encoded
+        item.encoded = end
+        if item.ready:
+            item.data = None
+            if item.key is not None:
+                self.encode_cache.put(item.key, item.embeds)
+        return budget
 
     def step(self):
         if not (self.static and self.running):
@@ -202,5 +223,5 @@ class Engine:
                 c.release()
 
     def run(self):
-        while self.waiting or self.running:
+        while self.busy:
             self.step()
