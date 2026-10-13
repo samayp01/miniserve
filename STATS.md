@@ -3,6 +3,21 @@
 - mlx-lm version: 0.31.3
 
 
+### v0.6.0 Streaming Video on SmolVLM-500M
+
+```
+  3 streams, 10 fps cameras sampled at 1 fps, 30-frame window, 120 s
+                                     re-prepare frames     cached frame keys
+  question ttft p50 / max              2032 / 2238 ms        668 /  873 ms
+  server peak RSS, first -> last third 3521 -> 3673 MB      1458 -> 1458 MB
+  encode cache (64 MB budget)            18 -> 45 MB          18 -> 45 MB
+  frames kept / skipped / dropped      437 / 4213 / 0        440 / 4210 / 0
+  encode backlog, waiting queue           0, 0                  0, 0
+```
+
+Sampling each stream at 1 fps into a 30-frame window, encoding frames in the background as they arrive and building each question from the cached frame vectors keeps every server-side queue at zero and process memory flat, with only the encode cache growing toward its fixed budget. Skipping the pixel work for already-cached frames cut question TTFT 3x and peak memory by 2.2 GB. With 8 cameras at 30 fps, clients could no longer connect (one HTTP request per frame, parsed on the event loop that also runs the engine, tops out near 77 frames/s).
+
+
 ### v0.5.0 Swapping Preempted KV to SSD
 
 ```
