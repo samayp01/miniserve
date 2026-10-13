@@ -23,10 +23,13 @@ class MediaStream:
         self.last_kept = now
         return None
 
-    def keep(self, frame, queued):
-        self.frames.append(frame)
+    def keep(self, frame, key, queued):
+        self.frames.append((frame, key))
         self.pending = queued[0] if queued else None
         self.kept += 1
 
     def media(self):
-        return [{"type": "frame", "data": frame} for frame in self.frames]
+        return [{"type": "frame", "data": frame} for frame, _ in self.frames]
+
+    def keys(self):
+        return [key for _, key in self.frames]

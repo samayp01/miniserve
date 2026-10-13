@@ -153,7 +153,14 @@ async def ask(stream_id: str, body: Question, request: Request):
     stream = _media_stream(stream_id)
     if not stream.frames:
         raise HTTPException(status_code=400, detail="stream has no frames yet")
-    media = stream.media()
+    media, keys, arrival = stream.media(), stream.keys(), time.time()
+    try:
+        ids, items = await asyncio.to_thread(runtime.adapter.layout, body.prompt, keys)
+    except NotImplementedError:
+        items = None
+    if items is not None and runtime.attach_cached(items):
+        response = runtime.enqueue(ids, items, body.max_tokens, arrival)
+        return StreamingResponse(events(response, request.is_disconnected), media_type="text/event-stream")
     return await _respond(body.prompt, body.max_tokens, lambda: media, request)
 
 

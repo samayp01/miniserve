@@ -51,16 +51,30 @@ class SmolVLMAdapter(ModelAdapter):
         ids = inputs["input_ids"][0].tolist()
         return ids, self._split(ids, inputs["pixel_values"][0], images) if images else []
 
-    def _split(self, ids, views, images):
+    def layout(self, prompt, keys):
+        text = apply_chat_template(self.processor, self.model.config, prompt, num_images=len(keys))
+        block = self.processor.replace_image_token({"rows": [[0] * len(keys)], "cols": [[0] * len(keys)]}, 0)
+        first, *rest = text.split(self.processor.image_token)
+        ids = self.tokenizer(first + "".join(block + part for part in rest), add_special_tokens=False)["input_ids"]
+        return ids, [Media(positions=group, key=key, pieces=len(group) // self.processor.image_seq_len)
+                     for key, group in zip(keys, self._groups(ids))]
+
+    def _groups(self, ids):
         per_view = self.processor.image_seq_len
         placeholders = [i for i, t in enumerate(ids) if t == self.image_token]
         ends = [i + 1 + per_view for i, t in enumerate(ids) if t == self.global_token]
-        items, start, first = [], 0, 0
-        for image, end in zip(images, ends):
-            positions = [p for p in placeholders if start <= p < end]
-            count = len(positions) // per_view
+        groups, start = [], 0
+        for end in ends:
+            groups.append([p for p in placeholders if start <= p < end])
+            start = end
+        return groups
+
+    def _split(self, ids, views, images):
+        items, first = [], 0
+        for image, positions in zip(images, self._groups(ids)):
+            count = len(positions) // self.processor.image_seq_len
             items.append(Media(positions=positions, data=views[first:first + count], key=self._key(image)))
-            start, first = end, first + count
+            first += count
         return items
 
     def _key(self, image):

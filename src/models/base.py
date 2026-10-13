@@ -25,3 +25,6 @@ class ModelAdapter(ABC):
 
     def encode(self, media: Media, start: int, end: int) -> mx.array:
         raise NotImplementedError(f"{type(self).__name__} can't take media")
+
+    def layout(self, prompt: str, keys: list[str]) -> tuple[list[int], list[Media]]:
+        raise NotImplementedError(f"{type(self).__name__} can't lay out media without its data")

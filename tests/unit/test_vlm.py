@@ -1,5 +1,6 @@
 import asyncio
 
+import mlx.core as mx
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw
@@ -140,3 +141,45 @@ def test_stream_window_answers_from_prefetched_frames():
     text, req = asyncio.run(go())
     assert "red" in text
     assert [item.hit for item in req.media] == [True, True]
+
+
+def test_layout_matches_prepare_without_any_pixels():
+    frames = [{"type": "frame", "data": _frame(x)} for x in (0, 100, 200)]
+    ids, items = vlm.prepare("What is moving?", frames)
+    layout_ids, layout_items = vlm.layout("What is moving?", [item.key for item in items])
+    assert layout_ids == ids
+    assert [i.positions for i in layout_items] == [i.positions for i in items]
+    assert all(i.pieces == 1 and i.data is None for i in layout_items)
+
+
+def test_attach_cached_needs_every_frame_in_the_cache():
+    runtime = MiniserveRuntime(vlm, num_blocks=64)
+    _, items = vlm.layout("Hi", ["a", "b"])
+    runtime.engine.encode_cache.put("a", mx.zeros((64, 4)))
+    assert not runtime.attach_cached(items)
+    assert not any(i.ready for i in items)
+    runtime.engine.encode_cache.put("b", mx.zeros((64, 4)))
+    assert runtime.attach_cached(items)
+    assert all(i.ready and i.hit for i in items)
+
+
+def test_question_over_cached_frames_holds_no_pixels():
+    async def go():
+        runtime = MiniserveRuntime(vlm, num_blocks=256)
+        async with runtime.running():
+            stream = runtime.open_stream(fps=100, window=3)
+            for i, x in enumerate((0, 100, 200)):
+                assert stream.admit(float(i)) is None
+                frame = _frame(x)
+                runtime.ingest(stream, frame, vlm.prepare("", [{"type": "frame", "data": frame}])[1])
+                while stream.pending is not None and not stream.pending.ready:
+                    await asyncio.sleep(0.01)
+            ids, items = vlm.layout("What color is the circle?", stream.keys())
+            assert runtime.attach_cached(items)
+            response = runtime.enqueue(ids, items, 20)
+            text = "".join([delta async for delta in response]).lower()
+            return text, response.request
+
+    text, req = asyncio.run(go())
+    assert "red" in text
+    assert all(item.data is None and item.hit for item in req.media)

@@ -126,7 +126,15 @@ class MiniserveRuntime:
         return self.media_streams.pop(stream_id, None)
 
     def ingest(self, stream, frame, items):
-        stream.keep(frame, self.engine.prefetch_media(items))
+        stream.keep(frame, items[0].key, self.engine.prefetch_media(items))
+
+    def attach_cached(self, items):
+        embeds = [self.engine.encode_cache.peek(item.key) for item in items]
+        if any(e is None for e in embeds):
+            return False
+        for item, e in zip(items, embeds):
+            item.embeds, item.encoded, item.hit = e, item.pieces, True
+        return True
 
     def submit(self, prompt, max_tokens=128, media=()):
         return self.enqueue(*self.adapter.prepare(prompt, media), max_tokens)

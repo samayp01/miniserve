@@ -1,6 +1,6 @@
 import itertools
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import mlx.core as mx
 import numpy as np
@@ -14,10 +14,11 @@ class Media:
     encoded: int = 0
     key: str | None = None
     hit: bool = False
-    pieces: int = field(init=False)
+    pieces: int | None = None
 
     def __post_init__(self):
-        self.pieces = 0 if self.data is None else len(self.data)
+        if self.pieces is None:
+            self.pieces = 0 if self.data is None else len(self.data)
 
     @property
     def ready(self):

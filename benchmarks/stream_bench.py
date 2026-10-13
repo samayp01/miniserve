@@ -25,12 +25,13 @@ def render(stream, index, size=512):
 
 
 async def camera(client, stream_id, stream, args, stop):
-    index, start = 0, time.perf_counter()
+    index, start, sent = 0, time.perf_counter(), []
     while not stop.is_set():
         data = await asyncio.to_thread(render, stream, index)
-        await client.post(f"/streams/{stream_id}/frames", json={"data": data})
+        sent.append(asyncio.create_task(client.post(f"/streams/{stream_id}/frames", json={"data": data})))
         index += 1
         await asyncio.sleep(max(0.0, start + index / args.camera_fps - time.perf_counter()))
+    await asyncio.gather(*sent)
 
 
 async def asker(client, stream_id, args, stop, asks, t0):
@@ -83,7 +84,7 @@ async def main():
     args = ap.parse_args()
 
     samples, asks, stop = [], [], asyncio.Event()
-    async with httpx.AsyncClient(base_url=args.url, timeout=None) as client:
+    async with httpx.AsyncClient(base_url=args.url, timeout=None, limits=httpx.Limits(max_connections=256)) as client:
         ids = [(await client.post("/streams", json={"fps": args.fps, "window": args.window})).json()["stream_id"]
                for _ in range(args.streams)]
         t0 = time.perf_counter()
@@ -106,6 +107,8 @@ async def main():
     ttfts = sorted(a["ttft_ms"] for a in asks if a["ttft_ms"] is not None)
     hit = sum(a["media_hits"] or 0 for a in asks) / max(1, sum(a["media"] or 0 for a in asks))
     print(f"\nframes {frames}")
+    sent_rate = sum(frames.values()) / (args.warmup + args.duration) / args.streams
+    print(f"cameras sent {sent_rate:.1f} frames/s each (target {args.camera_fps:g})")
     print(f"asks {len(asks)}: ttft p50 {ttfts[len(ttfts) // 2]:.0f}ms, max {ttfts[-1]:.0f}ms, "
           f"window frames already encoded {hit:.0%}")
 
