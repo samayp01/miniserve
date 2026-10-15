@@ -23,6 +23,9 @@ class MediaStream:
         self.last_kept = now
         return None
 
+    def reject(self):
+        self.dropped += 1
+
     def keep(self, frame, key, queued):
         self.frames.append((frame, key))
         self.pending = queued[0] if queued else None

@@ -7,11 +7,12 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
 from PIL import Image, UnidentifiedImageError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from src.api.runtime import GenerationError, MiniserveRuntime
+from src.api.runtime import GenerationError, MiniserveRuntime, ServerBusy
 from src.engine.scheduler import FifoScheduler, PriorityScheduler
 from src.models.registry import load_adapter
 
@@ -26,7 +27,8 @@ def load_scheduler():
 def engine_settings():
     settings = {"scheduler": load_scheduler()}
     for name, key in (("MINISERVE_MAX_BATCH", "max_batch"), ("MINISERVE_KV_BLOCKS", "num_blocks"),
-                      ("MINISERVE_SWAP_MIN_TOKENS", "swap_min_tokens"), ("MINISERVE_ENCODE_CACHE_MB", "encode_cache_mb")):
+                      ("MINISERVE_SWAP_MIN_TOKENS", "swap_min_tokens"), ("MINISERVE_ENCODE_CACHE_MB", "encode_cache_mb"),
+                      ("MINISERVE_MAX_WAITING", "max_waiting"), ("MINISERVE_MAX_PREPARING", "max_preparing")):
         if name in os.environ:
             settings[key] = int(os.environ[name])
     return settings
@@ -102,11 +104,27 @@ async def events(stream, is_disconnected):
         stream.cancel()
 
 
+def _busy(e):
+    return HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "1"})
+
+
+async def _body(request, model):
+    try:
+        return model.model_validate(await request.json())
+    except ValidationError as e:
+        raise RequestValidationError(e.errors()) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"invalid JSON: {e}") from e
+
+
 async def _respond(prompt, max_tokens, load_media, request):
     arrival = time.time()
     try:
-        ids, items = await asyncio.to_thread(lambda: runtime.adapter.prepare(prompt, load_media()))
+        with runtime.preparing_slot():
+            ids, items = await asyncio.to_thread(lambda: runtime.adapter.prepare(prompt, load_media()))
         stream = runtime.enqueue(ids, items, max_tokens, arrival)
+    except ServerBusy as e:
+        raise _busy(e)
     except (ValueError, NotImplementedError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return StreamingResponse(events(stream, request.is_disconnected), media_type="text/event-stream")
@@ -125,7 +143,12 @@ def _prepare_frame(data):
 
 
 @app.post("/generate")
-async def generate(body: Prompt, request: Request):
+async def generate(request: Request):
+    try:
+        runtime.check_capacity()
+    except ServerBusy as e:
+        raise _busy(e)
+    body = await _body(request, Prompt)
     return await _respond(body.prompt, body.max_tokens, lambda: [decode_media(m) for m in body.media], request)
 
 
@@ -135,13 +158,18 @@ async def open_stream(body: StreamOptions):
 
 
 @app.post("/streams/{stream_id}/frames")
-async def add_frame(stream_id: str, body: Frame):
+async def add_frame(stream_id: str, request: Request):
     stream = _media_stream(stream_id)
     reason = stream.admit(time.time())
     if reason:
         return {"kept": False, "reason": reason}
     try:
-        frame, items = await asyncio.to_thread(_prepare_frame, body.data)
+        with runtime.preparing_slot():
+            body = await _body(request, Frame)
+            frame, items = await asyncio.to_thread(_prepare_frame, body.data)
+    except ServerBusy as e:
+        stream.reject()
+        raise _busy(e)
     except (ValueError, NotImplementedError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     runtime.ingest(stream, frame, items)
@@ -149,17 +177,28 @@ async def add_frame(stream_id: str, body: Frame):
 
 
 @app.post("/streams/{stream_id}/ask")
-async def ask(stream_id: str, body: Question, request: Request):
+async def ask(stream_id: str, request: Request):
     stream = _media_stream(stream_id)
     if not stream.frames:
         raise HTTPException(status_code=400, detail="stream has no frames yet")
+    try:
+        runtime.check_capacity()
+    except ServerBusy as e:
+        raise _busy(e)
+    body = await _body(request, Question)
     media, keys, arrival = stream.media(), stream.keys(), time.time()
     try:
-        ids, items = await asyncio.to_thread(runtime.adapter.layout, body.prompt, keys)
+        with runtime.preparing_slot():
+            ids, items = await asyncio.to_thread(runtime.adapter.layout, body.prompt, keys)
+    except ServerBusy as e:
+        raise _busy(e)
     except NotImplementedError:
         items = None
     if items is not None and runtime.attach_cached(items):
-        response = runtime.enqueue(ids, items, body.max_tokens, arrival)
+        try:
+            response = runtime.enqueue(ids, items, body.max_tokens, arrival)
+        except ServerBusy as e:
+            raise _busy(e)
         return StreamingResponse(events(response, request.is_disconnected), media_type="text/event-stream")
     return await _respond(body.prompt, body.max_tokens, lambda: media, request)
 

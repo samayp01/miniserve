@@ -2,7 +2,7 @@ import asyncio
 import logging
 import resource
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 import mlx.core as mx
 
@@ -15,6 +15,10 @@ log = logging.getLogger("miniserve")
 
 
 class GenerationError(RuntimeError):
+    pass
+
+
+class ServerBusy(RuntimeError):
     pass
 
 
@@ -111,11 +115,35 @@ class Stream:
 
 
 class MiniserveRuntime:
-    def __init__(self, adapter, num_blocks=4096, block_size=16, **engine_kwargs):
+    def __init__(self, adapter, num_blocks=4096, block_size=16, max_waiting=None, max_preparing=None, **engine_kwargs):
         self.adapter = adapter
         self.engine = Engine(make_block_pools(adapter, num_blocks, block_size), adapter, **engine_kwargs)
         self.streams = []
         self.media_streams = {}
+        self.max_waiting = max_waiting
+        self.max_preparing = max_preparing
+        self.preparing = 0
+        self.rejected = 0
+
+    def _reject(self, reason):
+        self.rejected += 1
+        raise ServerBusy(reason)
+
+    def check_capacity(self):
+        if self.max_waiting is not None and len(self.engine.waiting) >= self.max_waiting:
+            self._reject("too many requests waiting")
+        if self.max_preparing is not None and self.preparing >= self.max_preparing:
+            self._reject("too many requests being prepared")
+
+    @contextmanager
+    def preparing_slot(self):
+        if self.max_preparing is not None and self.preparing >= self.max_preparing:
+            self._reject("too many requests being prepared")
+        self.preparing += 1
+        try:
+            yield
+        finally:
+            self.preparing -= 1
 
     def open_stream(self, fps=1.0, window=30):
         stream = MediaStream(fps, window)
@@ -140,6 +168,8 @@ class MiniserveRuntime:
         return self.enqueue(*self.adapter.prepare(prompt, media), max_tokens)
 
     def enqueue(self, ids, items, max_tokens=128, arrival_time=None):
+        if self.max_waiting is not None and len(self.engine.waiting) >= self.max_waiting:
+            self._reject("too many requests waiting")
         req = Request(ids, max_output_tokens=max_tokens, media=items, arrival_time=arrival_time)
         self.engine.add_request(req)
         stream = Stream(req, self.adapter.tokenizer, self.cancel)
@@ -168,6 +198,8 @@ class MiniserveRuntime:
             "frames_kept": sum(s.kept for s in self.media_streams.values()),
             "frames_skipped": sum(s.skipped for s in self.media_streams.values()),
             "frames_dropped": sum(s.dropped for s in self.media_streams.values()),
+            "rejected": self.rejected,
+            "preparing": self.preparing,
         }
 
     def cancel(self, stream):

@@ -127,7 +127,8 @@ def test_load_scheduler_reads_the_age_weight(monkeypatch):
 
 
 def test_engine_settings_has_only_the_scheduler_by_default(monkeypatch):
-    for name in ("MINISERVE_MAX_BATCH", "MINISERVE_KV_BLOCKS", "MINISERVE_SWAP_MIN_TOKENS", "MINISERVE_AGE_WEIGHT", "MINISERVE_ENCODE_CACHE_MB"):
+    for name in ("MINISERVE_MAX_BATCH", "MINISERVE_KV_BLOCKS", "MINISERVE_SWAP_MIN_TOKENS", "MINISERVE_AGE_WEIGHT", "MINISERVE_ENCODE_CACHE_MB",
+                 "MINISERVE_MAX_WAITING", "MINISERVE_MAX_PREPARING"):
         monkeypatch.delenv(name, raising=False)
     assert list(engine_settings()) == ["scheduler"]
 
@@ -137,6 +138,9 @@ def test_engine_settings_reads_memory_settings(monkeypatch):
     monkeypatch.setenv("MINISERVE_KV_BLOCKS", "1024")
     monkeypatch.setenv("MINISERVE_SWAP_MIN_TOKENS", "0")
     monkeypatch.setenv("MINISERVE_ENCODE_CACHE_MB", "64")
+    monkeypatch.setenv("MINISERVE_MAX_WAITING", "8")
+    monkeypatch.setenv("MINISERVE_MAX_PREPARING", "4")
     settings = engine_settings()
     assert (settings["max_batch"], settings["num_blocks"], settings["swap_min_tokens"]) == (128, 1024, 0)
     assert settings["encode_cache_mb"] == 64
+    assert (settings["max_waiting"], settings["max_preparing"]) == (8, 4)

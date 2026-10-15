@@ -4,7 +4,7 @@ import pytest
 
 from tests.llama import llama, tokenizer
 from src.engine.request import Request
-from src.api.runtime import GenerationError, MiniserveRuntime, StreamDetokenizer, _stats
+from src.api.runtime import GenerationError, MiniserveRuntime, ServerBusy, StreamDetokenizer, _stats
 
 PARTY = [9468, 236, 231]
 ROCKET_WAVE = [9468, 248, 222, 9468, 234, 232]
@@ -198,3 +198,20 @@ def test_stats_split_ttft_into_queue_and_prefill():
     assert (stats["prepare_ms"], stats["queue_ms"], stats["encode_ms"], stats["prefill_ms"], stats["decode_ms"]) == (250.0, 250.0, 100.0, 150.0, 1250.0)
     assert stats["prepare_ms"] + stats["queue_ms"] + stats["encode_ms"] + stats["prefill_ms"] == stats["ttft_ms"]
     assert stats["media"] == 0
+
+
+def test_enqueue_rejects_when_the_waiting_queue_is_full():
+    runtime = MiniserveRuntime(llama, num_blocks=64, max_waiting=1)
+    runtime.submit("Hi", max_tokens=4)
+    with pytest.raises(ServerBusy):
+        runtime.submit("Hi again", max_tokens=4)
+    assert runtime.rejected == 1 and len(runtime.engine.waiting) == 1
+
+
+def test_preparing_slot_limits_concurrent_prepares():
+    runtime = MiniserveRuntime(llama, num_blocks=64, max_preparing=1)
+    with runtime.preparing_slot():
+        with pytest.raises(ServerBusy):
+            runtime.check_capacity()
+    runtime.check_capacity()
+    assert runtime.preparing == 0
