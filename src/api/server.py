@@ -168,7 +168,7 @@ async def add_frame(stream_id: str, request: Request):
             body = await _body(request, Frame)
             frame, items = await asyncio.to_thread(_prepare_frame, body.data)
     except ServerBusy as e:
-        stream.reject()
+        stream.reject(time.time())
         raise _busy(e)
     except (ValueError, NotImplementedError) as e:
         raise HTTPException(status_code=400, detail=str(e))

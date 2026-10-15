@@ -198,6 +198,7 @@ class MiniserveRuntime:
             "frames_kept": sum(s.kept for s in self.media_streams.values()),
             "frames_skipped": sum(s.skipped for s in self.media_streams.values()),
             "frames_dropped": sum(s.dropped for s in self.media_streams.values()),
+            "stream_fps": round(sum(s.fps for s in self.media_streams.values()) / len(self.media_streams), 2) if self.media_streams else None,
             "rejected": self.rejected,
             "preparing": self.preparing,
         }
